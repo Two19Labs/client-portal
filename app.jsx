@@ -144,322 +144,17 @@ const revisionsUsed = (project) => {
 // ============================================================
 
 const FREELANCER = {
-  email: 'priya@two19labs.com',
-  name: 'Priya Mehta',
-  password: 'priya123',
+  email: 'sonnal@two19labs.com',
+  name: 'Sonnal Dessai',
+  password: 'sonnalpassword',
   role: 'freelancer',
   joinedAt: daysAgo(180),
 };
 
-const SEED_CLIENTS = [
-  {
-    id: uuid(),
-    name: 'Arjun Sharma',
-    email: 'arjun@sharma.in',
-    phone: '+91 98765 43210',
-    password: 'arjun123',
-    role: 'client',
-    joinedAt: daysAgo(60),
-  },
-  {
-    id: uuid(),
-    name: 'Neha Kapoor',
-    email: 'neha@kapoorstore.com',
-    phone: '+91 87654 32109',
-    password: 'neha123',
-    role: 'client',
-    joinedAt: daysAgo(15),
-  },
-  {
-    id: uuid(),
-    name: 'Ravi Textiles',
-    email: 'ravi@ravitextiles.com',
-    phone: '+91 76543 21098',
-    password: 'ravi123',
-    role: 'client',
-    joinedAt: daysAgo(100),
-  },
-  {
-    id: uuid(),
-    name: 'Divya Singh',
-    email: 'divya@divyalifestyle.com',
-    phone: '+91 65432 10987',
-    password: 'divya123',
-    role: 'client',
-    joinedAt: daysAgo(8),
-  },
-];
+const SEED_CLIENTS = [];
+const SEED_PROJECTS = [];
+const SEED_NOTIFICATIONS = [];
 
-const SEED_PROJECTS = [
-  {
-    id: uuid(),
-    clientEmail: 'arjun@sharma.in',
-    name: 'ShopArjun',
-    type: 'ecommerce',
-    status: 'active',
-    amountAgreed: 45000,
-    amountPaid: 22500,
-    startDate: daysAgo(45),
-    endDate: null,
-    deliverableLink: '',
-    currentPhase: 'revision_1',
-    notes: 'Arjun wants a modern e-commerce site with product filtering and wishlist. Priority on mobile responsiveness.',
-    contentSubmission: {
-      status: 'delivered',
-      brief: 'Hi Priya, here are all our product photos, brand guidelines PDF, and the copy document for the homepage. We want a clean, modern look with our brand colors (navy and gold). Product categories: Electronics, Fashion, Home.',
-      files: [
-        { name: 'brand-guidelines.pdf', type: 'document', size: 2400000, uploadedAt: daysAgo(42) },
-        { name: 'product-photos.zip', type: 'other', size: 15800000, uploadedAt: daysAgo(42) },
-        { name: 'homepage-copy.docx', type: 'document', size: 45000, uploadedAt: daysAgo(42) },
-      ],
-      submittedAt: daysAgo(42),
-      deliveredAt: daysAgo(35),
-    },
-    revisions: [
-      {
-        round: 1,
-        status: 'submitted',
-        brief: 'Thanks for the first draft! The overall layout looks good. A few changes:\n1. Make the hero banner taller\n2. Change the product card hover effect\n3. The footer needs our updated address\n4. Add a newsletter signup section',
-        files: [
-          { name: 'revision-notes-r1.pdf', type: 'document', size: 180000, uploadedAt: daysAgo(10) },
-          { name: 'updated-footer-info.txt', type: 'document', size: 2400, uploadedAt: daysAgo(10) },
-        ],
-        submittedAt: daysAgo(10),
-        deliveredAt: null,
-      },
-      {
-        round: 2,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-      {
-        round: 3,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-    ],
-    createdAt: daysAgo(45),
-  },
-  {
-    id: uuid(),
-    clientEmail: 'neha@kapoorstore.com',
-    name: 'Kapoor Boutique Launch',
-    type: 'landing',
-    status: 'active',
-    amountAgreed: 18000,
-    amountPaid: 18000,
-    startDate: daysAgo(12),
-    endDate: null,
-    deliverableLink: '',
-    currentPhase: 'content_submission',
-    notes: 'Neha needs a single-page landing page for her boutique launch event. Fully paid upfront.',
-    contentSubmission: {
-      status: 'pending_client',
-      brief: '',
-      files: [],
-      submittedAt: null,
-      deliveredAt: null,
-    },
-    revisions: [
-      {
-        round: 1,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-      {
-        round: 2,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-      {
-        round: 3,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-    ],
-    createdAt: daysAgo(12),
-  },
-  {
-    id: uuid(),
-    clientEmail: 'ravi@ravitextiles.com',
-    name: 'Ravi Textiles Online',
-    type: 'business',
-    status: 'concluded',
-    amountAgreed: 32000,
-    amountPaid: 32000,
-    startDate: daysAgo(90),
-    endDate: daysAgo(20),
-    deliverableLink: 'https://ravitextiles.example.com',
-    currentPhase: 'completed',
-    notes: 'Project completed successfully. Client very happy with the result. Referred two more potential clients.',
-    contentSubmission: {
-      status: 'delivered',
-      brief: 'Attached are our company brochure, product catalog, team photos, and the text content for all pages. We want an authoritative, professional look.',
-      files: [
-        { name: 'company-brochure.pdf', type: 'document', size: 5200000, uploadedAt: daysAgo(87) },
-        { name: 'product-catalog.xlsx', type: 'document', size: 1200000, uploadedAt: daysAgo(87) },
-        { name: 'team-photos.zip', type: 'other', size: 22000000, uploadedAt: daysAgo(87) },
-      ],
-      submittedAt: daysAgo(87),
-      deliveredAt: daysAgo(75),
-    },
-    revisions: [
-      {
-        round: 1,
-        status: 'delivered',
-        brief: 'Good start. Please update the About Us section with the new text and change the primary color to a deeper blue.',
-        files: [
-          { name: 'about-us-text-v2.docx', type: 'document', size: 32000, uploadedAt: daysAgo(60) },
-        ],
-        submittedAt: daysAgo(60),
-        deliveredAt: daysAgo(50),
-      },
-      {
-        round: 2,
-        status: 'delivered',
-        brief: 'Almost perfect. Just fix the contact form alignment and add Google Maps embed on the contact page.',
-        files: [],
-        submittedAt: daysAgo(40),
-        deliveredAt: daysAgo(30),
-      },
-      {
-        round: 3,
-        status: 'delivered',
-        brief: 'Final tweaks: update phone number in footer, add WhatsApp chat button.',
-        files: [
-          { name: 'final-changes.txt', type: 'document', size: 1500, uploadedAt: daysAgo(25) },
-        ],
-        submittedAt: daysAgo(25),
-        deliveredAt: daysAgo(22),
-      },
-    ],
-    createdAt: daysAgo(90),
-  },
-  {
-    id: uuid(),
-    clientEmail: 'divya@divyalifestyle.com',
-    name: 'Divya Lifestyle',
-    type: 'portfolio',
-    status: 'active',
-    amountAgreed: 12000,
-    amountPaid: 6000,
-    startDate: daysAgo(5),
-    endDate: null,
-    deliverableLink: '',
-    currentPhase: 'content_submission',
-    notes: 'Divya is a lifestyle blogger. Wants a minimal portfolio with blog integration.',
-    contentSubmission: {
-      status: 'submitted',
-      brief: 'Hi Priya! Here are my headshots, logo, bio text, and a list of my social media links. I want a clean minimalist design with lots of whitespace. My brand colors are blush pink and charcoal.',
-      files: [
-        { name: 'headshots.zip', type: 'other', size: 8400000, uploadedAt: daysAgo(3) },
-        { name: 'logo-final.svg', type: 'image', size: 24000, uploadedAt: daysAgo(3) },
-        { name: 'bio-and-links.docx', type: 'document', size: 18000, uploadedAt: daysAgo(3) },
-      ],
-      submittedAt: daysAgo(3),
-      deliveredAt: null,
-    },
-    revisions: [
-      {
-        round: 1,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-      {
-        round: 2,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-      {
-        round: 3,
-        status: 'locked',
-        brief: '',
-        files: [],
-        submittedAt: null,
-        deliveredAt: null,
-      },
-    ],
-    createdAt: daysAgo(5),
-  },
-];
-
-const SEED_NOTIFICATIONS = [
-  {
-    id: uuid(),
-    type: 'submission',
-    forEmail: 'priya@two19labs.com',
-    projectId: SEED_PROJECTS[0].id,
-    message: 'Arjun Sharma submitted revision round 1 for ShopArjun.',
-    read: false,
-    createdAt: daysAgo(10),
-  },
-  {
-    id: uuid(),
-    type: 'submission',
-    forEmail: 'priya@two19labs.com',
-    projectId: SEED_PROJECTS[3].id,
-    message: 'Divya Singh submitted content for Divya Lifestyle.',
-    read: false,
-    createdAt: daysAgo(3),
-  },
-  {
-    id: uuid(),
-    type: 'project_created',
-    forEmail: 'neha@kapoorstore.com',
-    projectId: SEED_PROJECTS[1].id,
-    message: 'Your project Kapoor Boutique Launch has been created. Please submit your content.',
-    read: false,
-    createdAt: daysAgo(12),
-  },
-  {
-    id: uuid(),
-    type: 'delivery',
-    forEmail: 'arjun@sharma.in',
-    projectId: SEED_PROJECTS[0].id,
-    message: 'Priya Mehta delivered your content submission for ShopArjun. Revision Round 1 is now open.',
-    read: true,
-    createdAt: daysAgo(35),
-  },
-  {
-    id: uuid(),
-    type: 'project_created',
-    forEmail: 'divya@divyalifestyle.com',
-    projectId: SEED_PROJECTS[3].id,
-    message: 'Your project Divya Lifestyle has been created. Please submit your content.',
-    read: true,
-    createdAt: daysAgo(5),
-  },
-  {
-    id: uuid(),
-    type: 'project_concluded',
-    forEmail: 'ravi@ravitextiles.com',
-    projectId: SEED_PROJECTS[2].id,
-    message: 'Your project Ravi Textiles Online has been completed and delivered. View your website at the deliverable link.',
-    read: true,
-    createdAt: daysAgo(20),
-  },
-];
 
 
 // ============================================================
@@ -974,7 +669,7 @@ function DataProvider({ children }) {
           i === 0 ? { ...r, status: 'pending_client' } : r
         );
         updatedProject.currentPhase = 'revision_1';
-        notifMessage = `Priya Mehta delivered your content submission for ${project.name}. Revision Round 1 is now open.`;
+        notifMessage = `${FREELANCER.name} delivered your content submission for ${project.name}. Revision Round 1 is now open.`;
       } else if (phaseType === 'revision') {
         updatedProject.revisions = updatedProject.revisions.map((r, i) => {
           if (r.round === round) {
@@ -987,10 +682,10 @@ function DataProvider({ children }) {
         });
         if (round < 3) {
           updatedProject.currentPhase = `revision_${round + 1}`;
-          notifMessage = `Priya Mehta delivered revision round ${round} for ${project.name}. Revision Round ${round + 1} is now open.`;
+          notifMessage = `${FREELANCER.name} delivered revision round ${round} for ${project.name}. Revision Round ${round + 1} is now open.`;
         } else {
           updatedProject.currentPhase = 'completed';
-          notifMessage = `Priya Mehta delivered the final revision for ${project.name}. Your project is ready for delivery.`;
+          notifMessage = `${FREELANCER.name} delivered the final revision for ${project.name}. Your project is ready for delivery.`;
         }
       }
 
@@ -1201,6 +896,28 @@ function DataProvider({ children }) {
     }
   }, []);
 
+  const deleteProject = useCallback((projectId) => {
+    setData((prev) => {
+      const updated = {
+        ...prev,
+        projects: prev.projects.filter((p) => p.id !== projectId),
+        notifications: prev.notifications.filter((n) => n.projectId !== projectId),
+      };
+      saveData(updated);
+      return updated;
+    });
+
+    if (supabaseClient) {
+      supabaseClient.from('notifications').delete().eq('project_id', projectId).then(({ error }) => {
+        if (error) console.error('Supabase notifications delete error', error);
+      });
+      supabaseClient.from('projects').delete().eq('id', projectId).then(({ error }) => {
+        if (error) console.error('Supabase project delete error', error);
+      });
+    }
+    addToast('Project deleted successfully.', 'success');
+  }, [addToast]);
+
   const getProjectsForClient = useCallback(
     (clientEmail) => {
       return data.projects.filter((p) => p.clientEmail === clientEmail);
@@ -1250,12 +967,13 @@ function DataProvider({ children }) {
       updatePayment,
       updateNotes,
       markNotificationRead,
+      deleteProject,
       getProjectsForClient,
       getClientNotifications,
       getFreelancerNotifications,
       resetData: doResetData,
     }),
-    [data, loading, isConnected, connectSupabase, addClient, addProject, updateProject, deliverPhase, submitPhase, concludeProject, updatePayment, updateNotes, markNotificationRead, getProjectsForClient, getClientNotifications, getFreelancerNotifications, doResetData]
+    [data, loading, isConnected, connectSupabase, addClient, addProject, updateProject, deliverPhase, submitPhase, concludeProject, updatePayment, updateNotes, markNotificationRead, deleteProject, getProjectsForClient, getClientNotifications, getFreelancerNotifications, doResetData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
@@ -1520,10 +1238,10 @@ function LoginPage() {
 
           <div className="login-card__demo">
             <div style={{ marginBottom: '4px' }}>
-              <strong>Freelancer:</strong> priya@two19labs.com / priya123
+              <strong>Freelancer:</strong> {FREELANCER.email} / {FREELANCER.password}
             </div>
             <div>
-              <strong>Client:</strong> arjun@sharma.in / arjun123
+              <strong>Clients:</strong> Use any client email & password you create in the dashboard.
             </div>
           </div>
         </div>
@@ -1879,7 +1597,7 @@ function FreelancerDashboard() {
 // ============================================================
 
 function FreelancerProjectDetail({ projectId }) {
-  const { data, deliverPhase, updatePayment, updateNotes, concludeProject } = useData();
+  const { data, deliverPhase, updatePayment, updateNotes, concludeProject, deleteProject } = useData();
   const { addToast } = useToast();
 
   const project = data.projects.find((p) => p.id === projectId);
@@ -1891,6 +1609,13 @@ function FreelancerProjectDetail({ projectId }) {
   const [notesValue, setNotesValue] = useState('');
   const [notesEdited, setNotesEdited] = useState(false);
   const [deliverableLink, setDeliverableLink] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  const handleDeleteProject = () => {
+    deleteProject(project.id);
+    setShowDeleteModal(false);
+    navigate('dashboard');
+  };
 
   useEffect(() => {
     if (project) {
@@ -2219,13 +1944,50 @@ function FreelancerProjectDetail({ projectId }) {
               />
             </div>
             {notesEdited && (
-              <button className="btn btn-secondary btn-sm" onClick={handleSaveNotes}>
+              <button className="btn btn-secondary btn-sm" onClick={handleSaveNotes} style={{ marginBottom: '16px' }}>
                 SAVE NOTES
               </button>
             )}
+
+            <hr className="divider" style={{ margin: '24px 0 16px 0' }} />
+
+            <div>
+              <button
+                className="btn btn-danger btn-full"
+                onClick={() => setShowDeleteModal(true)}
+              >
+                DELETE PROJECT
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      {showDeleteModal && (
+        <Modal
+          title="DELETE PROJECT"
+          onClose={() => setShowDeleteModal(false)}
+          footer={
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', width: '100%' }}>
+              <button className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>
+                CANCEL
+              </button>
+              <button className="btn btn-danger" onClick={handleDeleteProject}>
+                DELETE PERMANENTLY
+              </button>
+            </div>
+          }
+        >
+          <div style={{ padding: '8px 0' }}>
+            <p style={{ fontSize: '14px', lineHeight: '1.5', color: 'var(--text-primary)' }}>
+              Are you sure you want to permanently delete this project? This will remove all files, briefs, and revision rounds from local storage and the database.
+            </p>
+            <p style={{ fontSize: '13px', color: 'var(--danger)', marginTop: '12px', fontWeight: 'bold' }}>
+              WARNING: This action cannot be undone.
+            </p>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
