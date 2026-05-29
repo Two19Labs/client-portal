@@ -144,9 +144,9 @@ const revisionsUsed = (project) => {
 // ============================================================
 
 const FREELANCER = {
-  email: 'sonnal@two19labs.com',
-  name: 'Sonnal Dessai',
-  password: 'sonnalpassword',
+  email: 'sonaldessai@gmail.com',
+  name: 'Sonal Dessai',
+  password: 'dessai1234',
   role: 'freelancer',
   joinedAt: daysAgo(180),
 };
