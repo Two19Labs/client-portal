@@ -1205,7 +1205,7 @@ function MobileTopbar({ onToggle }) {
       <button className="btn btn-ghost" onClick={onToggle} style={{ padding: '4px 8px', fontSize: '18px' }}>
         MENU
       </button>
-      <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '16px' }}>PORTAL</span>
+      <span style={{ fontWeight: 700, fontSize: '16px', letterSpacing: '-0.02em' }}>PORTAL</span>
       <div style={{ width: '60px' }}></div>
     </div>
   );
@@ -1528,7 +1528,7 @@ function FreelancerLayout({ currentView, children, onNavigate }) {
               <button className="btn btn-ghost" onClick={() => setSidebarOpen(true)} style={{ padding: '4px 8px' }}>
                 MENU
               </button>
-              <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '16px' }}>PORTAL</span>
+              <span style={{ fontWeight: 700, fontSize: '16px', letterSpacing: '-0.02em' }}>PORTAL</span>
               <div style={{ width: '60px' }}></div>
             </div>
           </div>
@@ -2898,15 +2898,15 @@ function ClientLayout() {
               </button>
             )}
             {clientProjects.length >= 1 && !selectedProject ? (
-              <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '16px' }}>
+              <span style={{ fontWeight: 700, fontSize: '16px', letterSpacing: '-0.02em' }}>
                 MY PROJECTS
               </span>
             ) : selectedProject ? (
-              <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '16px' }}>
+              <span style={{ fontWeight: 700, fontSize: '16px', letterSpacing: '-0.02em' }}>
                 {selectedProject.name}
               </span>
             ) : (
-              <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '16px' }}>
+              <span style={{ fontWeight: 700, fontSize: '16px', letterSpacing: '-0.02em' }}>
                 PORTAL
               </span>
             )}
@@ -2969,7 +2969,7 @@ function ClientProjectList({ projects, onSelect }) {
               onClick={() => onSelect(project.id)}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                <h3 style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '18px', letterSpacing: '-0.03em' }}>
+                <h3 style={{ fontWeight: 700, fontSize: '18px', letterSpacing: '-0.02em' }}>
                   {project.name}
                 </h3>
                 <StatusPill
@@ -3306,7 +3306,7 @@ function DeliveredPhaseCard({ title, brief, files, deliveredAt }) {
 function ConcludedCard({ project }) {
   return (
     <div className="card card--no-hover" style={{ padding: '32px', textAlign: 'center' }}>
-      <div style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '24px', letterSpacing: '-0.03em', marginBottom: '16px' }}>
+      <div style={{ fontWeight: 700, fontSize: '24px', letterSpacing: '-0.02em', marginBottom: '16px' }}>
         PROJECT COMPLETE
       </div>
       {project.status === 'concluded' && project.deliverableLink ? (
