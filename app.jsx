@@ -1045,14 +1045,38 @@ function FileUpload({ files, onChange }) {
   const inputRef = useRef(null);
 
   const handleFiles = (e) => {
-    const newFiles = Array.from(e.target.files).map((f) => ({
-      name: f.name,
-      type: getFileType(f.name),
-      size: f.size,
-      uploadedAt: new Date().toISOString(),
-    }));
-    onChange([...files, ...newFiles]);
-    if (inputRef.current) inputRef.current.value = '';
+    const filesArray = Array.from(e.target.files);
+    if (filesArray.length === 0) return;
+
+    const promises = filesArray.map((f) => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          resolve({
+            name: f.name,
+            type: getFileType(f.name),
+            size: f.size,
+            uploadedAt: new Date().toISOString(),
+            dataUrl: reader.result,
+          });
+        };
+        reader.onerror = () => {
+          resolve({
+            name: f.name,
+            type: getFileType(f.name),
+            size: f.size,
+            uploadedAt: new Date().toISOString(),
+            dataUrl: null,
+          });
+        };
+        reader.readAsDataURL(f);
+      });
+    });
+
+    Promise.all(promises).then((readFiles) => {
+      onChange([...files, ...readFiles]);
+      if (inputRef.current) inputRef.current.value = '';
+    });
   };
 
   const removeFile = (index) => {
@@ -1069,7 +1093,20 @@ function FileUpload({ files, onChange }) {
         <div className="file-list" style={{ marginTop: '12px' }}>
           {files.map((file, i) => (
             <div className="file-item" key={i}>
-              <span className="file-item__name">{file.name}</span>
+              {file.dataUrl ? (
+                <a
+                  href={file.dataUrl}
+                  download={file.name}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="file-item__name"
+                  style={{ textDecoration: 'underline', color: 'var(--text-primary)', cursor: 'pointer' }}
+                >
+                  {file.name}
+                </a>
+              ) : (
+                <span className="file-item__name">{file.name}</span>
+              )}
               <span className="file-item__type">{file.type}</span>
               <span className="file-item__size">{formatFileSize(file.size)}</span>
               <button className="file-item__remove" onClick={() => removeFile(i)}>
@@ -1090,10 +1127,33 @@ function FileList({ files }) {
     <div className="file-list">
       {files.map((file, i) => (
         <div className="file-item" key={i}>
-          <span className="file-item__name">{file.name}</span>
+          {file.dataUrl ? (
+            <a
+              href={file.dataUrl}
+              download={file.name}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="file-item__name"
+              style={{ textDecoration: 'underline', color: 'var(--text-primary)', cursor: 'pointer' }}
+            >
+              {file.name}
+            </a>
+          ) : (
+            <span className="file-item__name">{file.name}</span>
+          )}
           <span className="file-item__type">{file.type}</span>
           <span className="file-item__size">{formatFileSize(file.size)}</span>
           <span className="file-item__date">{formatDate(file.uploadedAt)}</span>
+          {file.dataUrl && (
+            <a
+              href={file.dataUrl}
+              download={file.name}
+              className="btn btn-secondary btn-sm"
+              style={{ padding: '2px 8px', fontSize: '10px' }}
+            >
+              DOWNLOAD
+            </a>
+          )}
         </div>
       ))}
     </div>
