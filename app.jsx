@@ -463,10 +463,37 @@ const SEED_NOTIFICATIONS = [
 
 
 // ============================================================
-// 3. STORAGE LAYER
+// 3. STORAGE & SUPABASE LAYER
 // ============================================================
 
 const STORAGE_KEY = 'freelancer_portal_data';
+
+// Supabase configuration - prefilled with placeholders but easily configurable via localStorage
+const getSupabaseConfig = () => {
+  const url = localStorage.getItem('supabase_url') || '';
+  const key = localStorage.getItem('supabase_anon_key') || '';
+  return { url, key };
+};
+
+const setSupabaseConfig = (url, key) => {
+  localStorage.setItem('supabase_url', url.trim());
+  localStorage.setItem('supabase_anon_key', key.trim());
+};
+
+const clearSupabaseConfig = () => {
+  localStorage.removeItem('supabase_url');
+  localStorage.removeItem('supabase_anon_key');
+};
+
+let supabaseClient = null;
+const { url: cachedUrl, key: cachedKey } = getSupabaseConfig();
+if (cachedUrl && cachedKey && typeof supabase !== 'undefined') {
+  try {
+    supabaseClient = supabase.createClient(cachedUrl, cachedKey);
+  } catch (e) {
+    console.error('Failed to initialize Supabase client', e);
+  }
+}
 
 function createSeedData() {
   return {
@@ -503,6 +530,56 @@ function resetData() {
   localStorage.removeItem(STORAGE_KEY);
   return createSeedData();
 }
+
+// Function to seed Supabase database if empty
+async function seedSupabaseDatabase(sbClient) {
+  try {
+    console.log('Seeding Supabase database...');
+    // Seed Clients, Projects, and Notifications in order
+    const { error: cErr } = await sbClient.from('clients').insert(SEED_CLIENTS);
+    if (cErr) console.error('Clients seeding error', cErr);
+    
+    const { error: pErr } = await sbClient.from('projects').insert(
+      SEED_PROJECTS.map(p => ({
+        id: p.id,
+        client_email: p.clientEmail,
+        name: p.name,
+        type: p.type,
+        status: p.status,
+        amount_agreed: p.amountAgreed,
+        amount_paid: p.amountPaid,
+        start_date: p.startDate,
+        end_date: p.endDate,
+        deliverable_link: p.deliverableLink,
+        current_phase: p.currentPhase,
+        notes: p.notes,
+        content_submission: p.contentSubmission,
+        revisions: p.revisions,
+        created_at: p.createdAt
+      }))
+    );
+    if (pErr) console.error('Projects seeding error', pErr);
+
+    const { error: nErr } = await sbClient.from('notifications').insert(
+      SEED_NOTIFICATIONS.map(n => ({
+        id: n.id,
+        type: n.type,
+        client_email: n.forEmail,
+        project_name: n.projectName,
+        project_id: n.projectId,
+        message: n.message,
+        read: n.read,
+        created_at: n.createdAt
+      }))
+    );
+    if (nErr) console.error('Notifications seeding error', nErr);
+
+    console.log('Supabase seeding complete.');
+  } catch (e) {
+    console.error('Failed to seed Supabase database', e);
+  }
+}
+
 
 
 // ============================================================
@@ -595,22 +672,169 @@ const DataContext = createContext();
 function DataProvider({ children }) {
   const [data, setData] = useState(() => loadData());
   const { addToast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [isConnected, setIsConnected] = useState(!!supabaseClient);
 
-  const persistData = useCallback((newData) => {
-    setData(newData);
-    saveData(newData);
+  // Sync data from Supabase
+  const fetchFromSupabase = useCallback(async (clientToUse = supabaseClient) => {
+    if (!clientToUse) return;
+    setLoading(true);
+    try {
+      // 1. Fetch clients
+      const { data: clients, error: cErr } = await clientToUse.from('clients').select('*');
+      if (cErr) throw cErr;
+
+      // If clients table is empty, auto-seed the database with demo values!
+      if (clients && clients.length === 0) {
+        await seedSupabaseDatabase(clientToUse);
+        const { data: reClients } = await clientToUse.from('clients').select('*');
+        const { data: reProjects } = await clientToUse.from('projects').select('*');
+        const { data: reNotifs } = await clientToUse.from('notifications').select('*').order('created_at', { ascending: false });
+        
+        const fetchedData = {
+          clients: reClients || [],
+          projects: (reProjects || []).map(p => ({
+            id: p.id,
+            clientEmail: p.client_email,
+            name: p.name,
+            type: p.type,
+            status: p.status,
+            amountAgreed: parseFloat(p.amount_agreed),
+            amountPaid: parseFloat(p.amount_paid),
+            startDate: p.start_date,
+            endDate: p.end_date,
+            deliverableLink: p.deliverable_link || '',
+            currentPhase: p.current_phase,
+            notes: p.notes || '',
+            contentSubmission: p.content_submission,
+            revisions: p.revisions,
+            createdAt: p.created_at
+          })),
+          notifications: (reNotifs || []).map(n => ({
+            id: n.id,
+            type: n.type,
+            forEmail: n.client_email,
+            projectName: n.project_name,
+            projectId: n.project_id,
+            message: n.message,
+            read: n.read,
+            createdAt: n.created_at
+          }))
+        };
+        setData(fetchedData);
+        saveData(fetchedData);
+        return;
+      }
+
+      // 2. Fetch projects and notifications
+      const { data: projects, error: pErr } = await clientToUse.from('projects').select('*');
+      if (pErr) throw pErr;
+      const { data: notifications, error: nErr } = await clientToUse.from('notifications').select('*').order('created_at', { ascending: false });
+      if (nErr) throw nErr;
+
+      const fetchedData = {
+        clients: clients || [],
+        projects: (projects || []).map(p => ({
+          id: p.id,
+          clientEmail: p.client_email,
+          name: p.name,
+          type: p.type,
+          status: p.status,
+          amountAgreed: parseFloat(p.amount_agreed),
+          amountPaid: parseFloat(p.amount_paid),
+          startDate: p.start_date,
+          endDate: p.end_date,
+          deliverableLink: p.deliverable_link || '',
+          currentPhase: p.current_phase,
+          notes: p.notes || '',
+          contentSubmission: p.content_submission,
+          revisions: p.revisions,
+          createdAt: p.created_at
+        })),
+        notifications: (notifications || []).map(n => ({
+          id: n.id,
+          type: n.type,
+          forEmail: n.client_email,
+          projectName: n.project_name,
+          projectId: n.project_id,
+          message: n.message,
+          read: n.read,
+          createdAt: n.created_at
+        }))
+      };
+      setData(fetchedData);
+      saveData(fetchedData); // update offline cache
+    } catch (e) {
+      console.error('Failed to sync with Supabase', e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  // Fetch on mount
+  useEffect(() => {
+    if (supabaseClient) {
+      fetchFromSupabase(supabaseClient);
+    }
+  }, [fetchFromSupabase]);
+
+  // Connect / Disconnect helper
+  const connectSupabase = useCallback(async (url, key) => {
+    if (!url.trim() || !key.trim()) {
+      clearSupabaseConfig();
+      supabaseClient = null;
+      setIsConnected(false);
+      addToast('Disconnected from Supabase. Falling back to local storage.', 'info');
+      setData(loadData());
+      return { success: true };
+    }
+
+    try {
+      const client = supabase.createClient(url.trim(), key.trim());
+      // Test query
+      const { error } = await client.from('clients').select('*').limit(1);
+      if (error) throw error;
+
+      setSupabaseConfig(url, key);
+      supabaseClient = client;
+      setIsConnected(true);
+      addToast('Connected to Supabase successfully!', 'success');
+      fetchFromSupabase(client);
+      return { success: true };
+    } catch (e) {
+      console.error('Supabase connection test failed', e);
+      addToast(`Connection failed: ${e.message || 'Check URL and Anon Key'}`, 'danger');
+      return { success: false, error: e.message };
+    }
+  }, [addToast, fetchFromSupabase]);
+
   const addClient = useCallback((client) => {
+    const newClient = { ...client, id: uuid(), role: 'client', joinedAt: new Date().toISOString() };
     setData((prev) => {
       const updated = {
         ...prev,
-        clients: [...prev.clients, { ...client, id: uuid(), role: 'client', joinedAt: new Date().toISOString() }],
+        clients: [...prev.clients, newClient],
       };
       saveData(updated);
       return updated;
     });
-  }, []);
+
+    if (supabaseClient) {
+      supabaseClient.from('clients').insert([{
+        id: newClient.id,
+        name: newClient.name,
+        email: newClient.email,
+        phone: newClient.phone,
+        password: newClient.password,
+        joined_at: newClient.joinedAt
+      }]).then(({ error }) => {
+        if (error) {
+          console.error('Supabase client insert error', error);
+          addToast('Failed to sync new client to database.', 'danger');
+        }
+      });
+    }
+  }, [addToast]);
 
   const addProject = useCallback((project) => {
     const projectId = uuid();
@@ -663,6 +887,41 @@ function DataProvider({ children }) {
       return updated;
     });
 
+    if (supabaseClient) {
+      supabaseClient.from('projects').insert([{
+        id: newProject.id,
+        client_email: newProject.clientEmail,
+        name: newProject.name,
+        type: newProject.type,
+        status: newProject.status,
+        amount_agreed: newProject.amountAgreed,
+        amount_paid: newProject.amountPaid,
+        start_date: newProject.startDate,
+        end_date: newProject.endDate,
+        deliverable_link: newProject.deliverableLink,
+        current_phase: newProject.currentPhase,
+        notes: newProject.notes,
+        content_submission: newProject.contentSubmission,
+        revisions: newProject.revisions,
+        created_at: newProject.createdAt
+      }]).then(({ error }) => {
+        if (error) console.error('Supabase project insert error', error);
+      });
+
+      supabaseClient.from('notifications').insert([{
+        id: notification.id,
+        type: notification.type,
+        client_email: notification.forEmail,
+        project_name: newProject.name,
+        project_id: notification.projectId,
+        message: notification.message,
+        read: notification.read,
+        created_at: notification.createdAt
+      }]).then(({ error }) => {
+        if (error) console.error('Supabase notification insert error', error);
+      });
+    }
+
     return projectId;
   }, []);
 
@@ -675,6 +934,25 @@ function DataProvider({ children }) {
       saveData(updated);
       return updated;
     });
+
+    if (supabaseClient) {
+      const dbUpdates = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.type !== undefined) dbUpdates.type = updates.type;
+      if (updates.status !== undefined) dbUpdates.status = updates.status;
+      if (updates.amountAgreed !== undefined) dbUpdates.amount_agreed = updates.amountAgreed;
+      if (updates.amountPaid !== undefined) dbUpdates.amount_paid = updates.amountPaid;
+      if (updates.deliverableLink !== undefined) dbUpdates.deliverable_link = updates.deliverableLink;
+      if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+      if (updates.currentPhase !== undefined) dbUpdates.current_phase = updates.currentPhase;
+      if (updates.contentSubmission !== undefined) dbUpdates.content_submission = updates.contentSubmission;
+      if (updates.revisions !== undefined) dbUpdates.revisions = updates.revisions;
+
+      supabaseClient.from('projects').update(dbUpdates).eq('id', id)
+        .then(({ error }) => {
+          if (error) console.error('Supabase update error', error);
+        });
+    }
   }, []);
 
   const deliverPhase = useCallback((projectId, phaseType, round) => {
@@ -684,8 +962,6 @@ function DataProvider({ children }) {
 
       const updatedProject = { ...project };
       const now = new Date().toISOString();
-      const client = prev.clients.find((c) => c.email === project.clientEmail);
-      const clientName = client ? client.name : project.clientEmail;
       let notifMessage = '';
 
       if (phaseType === 'content_submission') {
@@ -727,6 +1003,25 @@ function DataProvider({ children }) {
         read: false,
         createdAt: now,
       };
+
+      if (supabaseClient) {
+        supabaseClient.from('projects').update({
+          content_submission: updatedProject.contentSubmission,
+          revisions: updatedProject.revisions,
+          current_phase: updatedProject.currentPhase
+        }).eq('id', projectId).then(({ error }) => { if (error) console.error(error); });
+
+        supabaseClient.from('notifications').insert([{
+          id: notification.id,
+          type: notification.type,
+          client_email: notification.forEmail,
+          project_name: project.name,
+          project_id: notification.projectId,
+          message: notification.message,
+          read: notification.read,
+          created_at: notification.createdAt
+        }]).then(({ error }) => { if (error) console.error(error); });
+      }
 
       const updated = {
         ...prev,
@@ -778,6 +1073,24 @@ function DataProvider({ children }) {
         createdAt: now,
       };
 
+      if (supabaseClient) {
+        supabaseClient.from('projects').update({
+          content_submission: updatedProject.contentSubmission,
+          revisions: updatedProject.revisions
+        }).eq('id', projectId).then(({ error }) => { if (error) console.error(error); });
+
+        supabaseClient.from('notifications').insert([{
+          id: notification.id,
+          type: notification.type,
+          client_email: notification.forEmail,
+          project_name: project.name,
+          project_id: notification.projectId,
+          message: notification.message,
+          read: notification.read,
+          created_at: notification.createdAt
+        }]).then(({ error }) => { if (error) console.error(error); });
+      }
+
       const updated = {
         ...prev,
         projects: prev.projects.map((p) => (p.id === projectId ? updatedProject : p)),
@@ -811,6 +1124,25 @@ function DataProvider({ children }) {
         createdAt: now,
       };
 
+      if (supabaseClient) {
+        supabaseClient.from('projects').update({
+          status: updatedProject.status,
+          end_date: updatedProject.endDate,
+          deliverable_link: updatedProject.deliverableLink
+        }).eq('id', projectId).then(({ error }) => { if (error) console.error(error); });
+
+        supabaseClient.from('notifications').insert([{
+          id: notification.id,
+          type: notification.type,
+          client_email: notification.forEmail,
+          project_name: project.name,
+          project_id: notification.projectId,
+          message: notification.message,
+          read: notification.read,
+          created_at: notification.createdAt
+        }]).then(({ error }) => { if (error) console.error(error); });
+      }
+
       const updated = {
         ...prev,
         projects: prev.projects.map((p) => (p.id === projectId ? updatedProject : p)),
@@ -830,6 +1162,11 @@ function DataProvider({ children }) {
       saveData(updated);
       return updated;
     });
+
+    if (supabaseClient) {
+      supabaseClient.from('projects').update({ amount_paid: amountPaid }).eq('id', projectId)
+        .then(({ error }) => { if (error) console.error(error); });
+    }
   }, []);
 
   const updateNotes = useCallback((projectId, notes) => {
@@ -841,6 +1178,11 @@ function DataProvider({ children }) {
       saveData(updated);
       return updated;
     });
+
+    if (supabaseClient) {
+      supabaseClient.from('projects').update({ notes: notes }).eq('id', projectId)
+        .then(({ error }) => { if (error) console.error(error); });
+    }
   }, []);
 
   const markNotificationRead = useCallback((notifId) => {
@@ -852,6 +1194,11 @@ function DataProvider({ children }) {
       saveData(updated);
       return updated;
     });
+
+    if (supabaseClient) {
+      supabaseClient.from('notifications').update({ read: true }).eq('id', notifId)
+        .then(({ error }) => { if (error) console.error(error); });
+    }
   }, []);
 
   const getProjectsForClient = useCallback(
@@ -875,11 +1222,25 @@ function DataProvider({ children }) {
   const doResetData = useCallback(() => {
     const fresh = resetData();
     setData(fresh);
-  }, []);
+    if (supabaseClient) {
+      // Clear Supabase tables
+      supabaseClient.from('notifications').delete().neq('id', uuid()).then(() => {});
+      supabaseClient.from('projects').delete().neq('id', uuid()).then(() => {});
+      supabaseClient.from('clients').delete().neq('id', uuid()).then(() => {
+        // Re-seed Supabase
+        seedSupabaseDatabase(supabaseClient).then(() => {
+          fetchFromSupabase(supabaseClient);
+        });
+      });
+    }
+  }, [fetchFromSupabase]);
 
   const value = useMemo(
     () => ({
       data,
+      loading,
+      isConnected,
+      connectSupabase,
       addClient,
       addProject,
       updateProject,
@@ -894,7 +1255,7 @@ function DataProvider({ children }) {
       getFreelancerNotifications,
       resetData: doResetData,
     }),
-    [data, addClient, addProject, updateProject, deliverPhase, submitPhase, concludeProject, updatePayment, updateNotes, markNotificationRead, getProjectsForClient, getClientNotifications, getFreelancerNotifications, doResetData]
+    [data, loading, isConnected, connectSupabase, addClient, addProject, updateProject, deliverPhase, submitPhase, concludeProject, updatePayment, updateNotes, markNotificationRead, getProjectsForClient, getClientNotifications, getFreelancerNotifications, doResetData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
@@ -1083,7 +1444,11 @@ function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const { login } = useAuth();
-  const { data } = useData();
+  const { data, connectSupabase, isConnected, loading } = useData();
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [sbUrl, setSbUrl] = useState(() => localStorage.getItem('supabase_url') || '');
+  const [sbKey, setSbKey] = useState(() => localStorage.getItem('supabase_anon_key') || '');
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -1094,6 +1459,14 @@ function LoginPage() {
     } else {
       const isFreelancer = email === FREELANCER.email;
       navigate(isFreelancer ? 'dashboard' : 'client');
+    }
+  };
+
+  const handleConnect = async (e) => {
+    e.preventDefault();
+    const result = await connectSupabase(sbUrl, sbKey);
+    if (result.success) {
+      setShowSettings(false);
     }
   };
 
@@ -1155,9 +1528,138 @@ function LoginPage() {
           </div>
         </div>
 
-        <div style={{ position: 'fixed', bottom: '24px', right: '24px' }}>
+        <div style={{ position: 'fixed', bottom: '24px', right: '24px', display: 'flex', gap: '8px', zIndex: 100 }}>
+          <button 
+            className="theme-toggle" 
+            onClick={() => setShowSettings(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+          >
+            {isConnected ? '⚡ CLOUD ACTIVE' : '⚙️ SETUP CLOUD'}
+          </button>
           <ThemeToggle />
         </div>
+
+        {showSettings && (
+          <Modal title="DATABASE INTEGRATION SETTINGS" onClose={() => setShowSettings(false)}>
+            <form onSubmit={handleConnect}>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.5 }}>
+                Connect this client portal to your own **Supabase** database to synchronize data in real-time across your freelancer and client devices.
+              </p>
+              
+              <div className="form-group">
+                <label className="form-label">SUPABASE PROJECT URL</label>
+                <input
+                  type="url"
+                  className="form-input"
+                  value={sbUrl}
+                  onChange={(e) => setSbUrl(e.target.value)}
+                  placeholder="https://your-project-id.supabase.co"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">SUPABASE ANON PUBLIC KEY</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={sbKey}
+                  onChange={(e) => setSbKey(e.target.value)}
+                  placeholder="your-anon-public-key"
+                  style={{ fontSize: '12px', fontFamily: 'monospace' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                {isConnected && (
+                  <button 
+                    type="button" 
+                    className="btn btn-danger" 
+                    onClick={() => {
+                      connectSupabase('', '');
+                      setSbUrl('');
+                      setSbKey('');
+                      setShowSettings(false);
+                    }}
+                    style={{ marginRight: 'auto' }}
+                  >
+                    DISCONNECT
+                  </button>
+                )}
+                <button type="button" className="btn btn-secondary" onClick={() => setShowSettings(false)}>
+                  CANCEL
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>
+                  {loading ? 'CONNECTING...' : 'SAVE & CONNECT'}
+                </button>
+              </div>
+
+              <div style={{ marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <details style={{ cursor: 'pointer' }}>
+                  <summary style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    🛠️ SQL SCHEMA FOR SUPABASE SQL EDITOR
+                  </summary>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '8px 0', lineHeight: 1.4 }}>
+                    Before connecting, copy and paste this script inside your Supabase <strong>SQL Editor</strong> tab and click <strong>Run</strong> to automatically construct the required tables:
+                  </p>
+                  <pre style={{
+                    background: 'var(--bg-primary)',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    fontSize: '10px',
+                    fontFamily: 'monospace',
+                    overflowX: 'auto',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-secondary)',
+                    maxHeight: '150px',
+                    whiteSpace: 'pre-wrap'
+                  }}>
+{`-- 1. Create Clients Table
+CREATE TABLE IF NOT EXISTS clients (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    phone TEXT,
+    password TEXT NOT NULL,
+    joined_at TIMESTAMPTZ DEFAULT NOW(),
+    role TEXT DEFAULT 'client'
+);
+
+-- 2. Create Projects Table
+CREATE TABLE IF NOT EXISTS projects (
+    id UUID PRIMARY KEY,
+    client_email TEXT REFERENCES clients(email) ON UPDATE CASCADE,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    amount_agreed NUMERIC NOT NULL,
+    amount_paid NUMERIC DEFAULT 0,
+    start_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ,
+    deliverable_link TEXT,
+    current_phase TEXT NOT NULL,
+    notes TEXT,
+    content_submission JSONB NOT NULL DEFAULT '{}'::jsonb,
+    revisions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Create Notifications Table
+CREATE TABLE IF NOT EXISTS notifications (
+    id UUID PRIMARY KEY,
+    type TEXT NOT NULL,
+    client_email TEXT NOT NULL,
+    project_name TEXT NOT NULL,
+    project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
+    read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);`}
+                  </pre>
+                </details>
+              </div>
+            </form>
+          </Modal>
+        )}
       </div>
     </div>
   );
