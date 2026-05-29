@@ -165,8 +165,8 @@ const STORAGE_KEY = 'freelancer_portal_data';
 
 // Supabase configuration - prefilled with placeholders but easily configurable via localStorage
 const getSupabaseConfig = () => {
-  const url = localStorage.getItem('supabase_url') || '';
-  const key = localStorage.getItem('supabase_anon_key') || '';
+  const url = localStorage.getItem('supabase_url') || 'https://kbcngzzoqcilcykgyulz.supabase.co';
+  const key = localStorage.getItem('supabase_anon_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiY25nenpvcWNpbGN5a2d5dWx6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNzI2MzAsImV4cCI6MjA5NTY0ODYzMH0.UJnTU-5MMYrH-TO7DpVbQTiMX-ulHnVnbJ4-xny-5yA';
   return { url, key };
 };
 
