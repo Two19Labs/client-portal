@@ -1755,11 +1755,12 @@ function NewProjectForm() {
     const errs = {};
     if (clientMode === 'existing' && !selectedClientEmail) errs.client = 'Select a client';
     if (clientMode === 'new') {
-      if (!newClientName.trim()) errs.clientName = 'Client name is required';
-      if (!newClientEmail.trim()) errs.clientEmail = 'Client email is required';
-      if (!newClientPassword.trim()) errs.clientPassword = 'Password is required';
-      const exists = data.clients.find((c) => c.email === newClientEmail.trim());
-      if (exists) errs.clientEmail = 'A client with this email already exists';
+      if (!newClientEmail.trim()) {
+        errs.clientEmail = 'Client email is required';
+      } else {
+        const exists = data.clients.find((c) => c.email.toLowerCase() === newClientEmail.trim().toLowerCase());
+        if (exists) errs.clientEmail = 'A client with this email already exists';
+      }
     }
     if (!projectName.trim()) errs.projectName = 'Project name is required';
     if (!projectType) errs.projectType = 'Select a project type';
@@ -1775,12 +1776,14 @@ function NewProjectForm() {
     let clientEmail = selectedClientEmail;
 
     if (clientMode === 'new') {
-      clientEmail = newClientEmail.trim();
+      clientEmail = newClientEmail.trim().toLowerCase();
+      const derivedName = newClientName.trim() || clientEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      const derivedPassword = newClientPassword.trim() || 'client123';
       addClient({
-        name: newClientName.trim(),
+        name: derivedName,
         email: clientEmail,
         phone: newClientPhone.trim(),
-        password: newClientPassword.trim(),
+        password: derivedPassword,
       });
     }
 
@@ -1843,17 +1846,6 @@ function NewProjectForm() {
           <div className="card card--no-hover" style={{ padding: '24px', marginBottom: '20px' }}>
             <div className="section-heading" style={{ marginBottom: '16px' }}>NEW CLIENT</div>
             <div className="form-group">
-              <label className="form-label">NAME</label>
-              <input
-                type="text"
-                className="form-input"
-                value={newClientName}
-                onChange={(e) => setNewClientName(e.target.value)}
-                placeholder="Client name"
-              />
-              {errors.clientName && <div className="form-error">{errors.clientName}</div>}
-            </div>
-            <div className="form-group">
               <label className="form-label">EMAIL</label>
               <input
                 type="email"
@@ -1861,11 +1853,22 @@ function NewProjectForm() {
                 value={newClientEmail}
                 onChange={(e) => setNewClientEmail(e.target.value)}
                 placeholder="client@example.com"
+                required
               />
               {errors.clientEmail && <div className="form-error">{errors.clientEmail}</div>}
             </div>
             <div className="form-group">
-              <label className="form-label">PHONE</label>
+              <label className="form-label">NAME (OPTIONAL)</label>
+              <input
+                type="text"
+                className="form-input"
+                value={newClientName}
+                onChange={(e) => setNewClientName(e.target.value)}
+                placeholder="Client name (auto-derived if left blank)"
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">PHONE (OPTIONAL)</label>
               <input
                 type="text"
                 className="form-input"
@@ -1875,15 +1878,17 @@ function NewProjectForm() {
               />
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">PASSWORD</label>
+              <label className="form-label">PASSWORD (OPTIONAL)</label>
               <input
                 type="text"
                 className="form-input"
                 value={newClientPassword}
                 onChange={(e) => setNewClientPassword(e.target.value)}
-                placeholder="Client portal password"
+                placeholder="Password (defaults to 'client123' if left blank)"
               />
-              {errors.clientPassword && <div className="form-error">{errors.clientPassword}</div>}
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                If left blank, the password will default to <strong>client123</strong> so the client can log in immediately.
+              </p>
             </div>
           </div>
         )}
