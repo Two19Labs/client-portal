@@ -2813,12 +2813,7 @@ function ClientLayout() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  // If only one project, show it directly
-  useEffect(() => {
-    if (clientProjects.length === 1 && !selectedProjectId) {
-      setSelectedProjectId(clientProjects[0].id);
-    }
-  }, [clientProjects, selectedProjectId]);
+  // Removed single-project auto-redirect so clients always see the project selection list first
 
   const selectedProject = selectedProjectId ? data.projects.find((p) => p.id === selectedProjectId) : null;
 
@@ -2837,12 +2832,12 @@ function ClientLayout() {
         {/* Top bar */}
         <div className="client-topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            {selectedProject && clientProjects.length > 1 && (
+            {selectedProject && clientProjects.length >= 1 && (
               <button className="btn-link" onClick={() => { setSelectedProjectId(null); navigate('client'); }}>
                 &#8592; PROJECTS
               </button>
             )}
-            {clientProjects.length > 1 && !selectedProject ? (
+            {clientProjects.length >= 1 && !selectedProject ? (
               <span style={{ fontFamily: "'Syne', sans-serif", fontWeight: 800, fontSize: '16px' }}>
                 MY PROJECTS
               </span>
@@ -2879,7 +2874,7 @@ function ClientLayout() {
 
         {/* Content */}
         <div className="client-content fade-in">
-          {!selectedProject && clientProjects.length > 1 ? (
+          {!selectedProject && clientProjects.length >= 1 ? (
             <ClientProjectList
               projects={clientProjects}
               onSelect={(id) => {
