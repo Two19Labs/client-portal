@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PORTAL — Freelancer Client Management</title>
+  <meta name="description" content="A professional client portal for freelance web designers to manage projects, content submissions, and revision workflows." />
+  
+  <!-- Google Fonts: Syne (700, 800) + DM Sans (400, 500) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+  
+  <link rel="stylesheet" href="index.css" />
+
+  <!-- React 18 via CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" src="app.jsx"></script>
+
+  <!-- Diagnostic Script for Local Filesystem (CORS) Loading Blocks -->
+  <script>
+    setTimeout(function() {
+      var root = document.getElementById('root');
+      if (root && root.children.length === 0) {
+        root.innerHTML = `
+          <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #F5F4F0; padding: 24px; font-family: 'DM Sans', sans-serif; color: #0A0A0A;">
+            <div style="background: #FFFFFF; border: 2px solid #0A0A0A; padding: 48px; max-width: 600px; width: 100%; box-shadow: 8px 8px 0px #0A0A0A;">
+              <div style="font-family: 'Syne', sans-serif; font-weight: 800; font-size: 32px; letter-spacing: -0.03em; margin-bottom: 24px; text-transform: uppercase;">
+                PORTAL LOAD ERROR
+              </div>
+              <div style="font-size: 14px; line-height: 1.7; color: #4A4947; margin-bottom: 32px;">
+                <p style="margin-bottom: 16px; font-weight: 500;">
+                  It looks like the application failed to initialize. This is usually caused by one of two things:
+                </p>
+                <div style="background: #EEEDE9; padding: 16px; border-left: 4px solid #0A0A0A; margin-bottom: 24px; font-size: 13px;">
+                  <strong>1. Browser Security Policy (CORS):</strong> Modern browsers block external scripts (like <code>app.jsx</code>) from being loaded via <code>file://</code> protocol when double-clicking HTML files directly.
+                  <br/><br/>
+                  <strong>2. Local Server Failure:</strong> If you are serving via HTTP, there might be a network loading error or runtime exception.
+                </div>
+                <p style="font-weight: 700; margin-bottom: 8px;">To run the portal successfully, use a local web server:</p>
+                <ul style="margin: 8px 0; padding-left: 20px; list-style-type: square; font-size: 13px;">
+                  <li style="margin-bottom: 6px;"><strong>Live Server (VS Code):</strong> Install the "Live Server" extension, open the directory, and click "Go Live" in the status bar.</li>
+                  <li style="margin-bottom: 6px;"><strong>Python:</strong> Run <code>python -m http.server 3000</code> in this folder and navigate to <code>http://localhost:3000</code>.</li>
+                  <li style="margin-bottom: 6px;"><strong>Node.js / Live Server:</strong> Run <code>npx live-server</code> or <code>npx http-server</code> inside this folder.</li>
+                </ul>
+              </div>
+              <div style="border-top: 1px solid #EEEDE9; padding-top: 24px; font-size: 11px; color: #8A8984;">
+                Press F12 to open Developer Tools and check the Console tab to view the specific error message.
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    }, 4000);
+  </script>
+</body>
+</html>
