@@ -466,10 +466,26 @@ function DataProvider({ children }) {
     }
   }, []);
 
-  // Fetch on mount
+  // Fetch and subscribe to Realtime updates on mount
   useEffect(() => {
     if (supabaseClient) {
       fetchFromSupabase(supabaseClient);
+
+      try {
+        const channel = supabaseClient
+          .channel('schema-db-changes')
+          .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+            console.log('Realtime database change detected:', payload);
+            fetchFromSupabase(supabaseClient);
+          })
+          .subscribe();
+
+        return () => {
+          supabaseClient.removeChannel(channel);
+        };
+      } catch (e) {
+        console.error('Failed to subscribe to Supabase Realtime', e);
+      }
     }
   }, [fetchFromSupabase]);
 
@@ -918,6 +934,73 @@ function DataProvider({ children }) {
     addToast('Project deleted successfully.', 'success');
   }, [addToast]);
 
+  const deleteClient = useCallback((clientId, clientEmail) => {
+    setData((prev) => {
+      const updatedClients = prev.clients.filter((c) => c.id !== clientId);
+      const updatedProjects = prev.projects.filter((p) => p.clientEmail !== clientEmail);
+      const projectIds = prev.projects.filter((p) => p.clientEmail === clientEmail).map((p) => p.id);
+      const updatedNotifications = prev.notifications.filter(
+        (n) => n.forEmail !== clientEmail && !projectIds.includes(n.projectId)
+      );
+
+      const updated = {
+        clients: updatedClients,
+        projects: updatedProjects,
+        notifications: updatedNotifications,
+      };
+      saveData(updated);
+      return updated;
+    });
+
+    if (supabaseClient) {
+      supabaseClient.from('clients').delete().eq('id', clientId).then(({ error }) => {
+        if (error) console.error('Supabase client delete error', error);
+      });
+      supabaseClient.from('projects').delete().eq('client_email', clientEmail).then(({ error }) => {
+        if (error) console.error('Supabase projects cascade delete error', error);
+      });
+    }
+    addToast('Client and all associated projects deleted.', 'success');
+  }, [addToast]);
+
+  const updateClient = useCallback((clientId, updates) => {
+    setData((prev) => {
+      const client = prev.clients.find((c) => c.id === clientId);
+      if (!client) return prev;
+
+      const updatedClients = prev.clients.map((c) => (c.id === clientId ? { ...c, ...updates } : c));
+      
+      let updatedProjects = prev.projects;
+      if (updates.email && updates.email !== client.email) {
+        updatedProjects = prev.projects.map((p) =>
+          p.clientEmail === client.email ? { ...p, clientEmail: updates.email } : p
+        );
+      }
+
+      const updated = {
+        ...prev,
+        clients: updatedClients,
+        projects: updatedProjects,
+      };
+      saveData(updated);
+      return updated;
+    });
+
+    if (supabaseClient) {
+      const dbUpdates = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.email !== undefined) dbUpdates.email = updates.email;
+      if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+      if (updates.password !== undefined) dbUpdates.password = updates.password;
+
+      supabaseClient.from('clients').update(dbUpdates).eq('id', clientId)
+        .then(({ error }) => {
+          if (error) console.error('Supabase client update error', error);
+        });
+    }
+    addToast('Client profile updated.', 'success');
+  }, [addToast]);
+
   const getProjectsForClient = useCallback(
     (clientEmail) => {
       return data.projects.filter((p) => p.clientEmail === clientEmail);
@@ -968,12 +1051,14 @@ function DataProvider({ children }) {
       updateNotes,
       markNotificationRead,
       deleteProject,
+      deleteClient,
+      updateClient,
       getProjectsForClient,
       getClientNotifications,
       getFreelancerNotifications,
       resetData: doResetData,
     }),
-    [data, loading, isConnected, connectSupabase, addClient, addProject, updateProject, deliverPhase, submitPhase, concludeProject, updatePayment, updateNotes, markNotificationRead, deleteProject, getProjectsForClient, getClientNotifications, getFreelancerNotifications, doResetData]
+    [data, loading, isConnected, connectSupabase, addClient, addProject, updateProject, deliverPhase, submitPhase, concludeProject, updatePayment, updateNotes, markNotificationRead, deleteProject, deleteClient, updateClient, getProjectsForClient, getClientNotifications, getFreelancerNotifications, doResetData]
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
@@ -1049,7 +1134,39 @@ function FileUpload({ files, onChange }) {
     if (filesArray.length === 0) return;
 
     const promises = filesArray.map((f) => {
-      return new Promise((resolve) => {
+      return new Promise(async (resolve) => {
+        const uniqueName = `${uuid()}_${f.name}`;
+
+        // 1. Try uploading to Supabase Storage bucket 'briefs' if connected
+        if (supabaseClient) {
+          try {
+            console.log(`Attempting to upload ${f.name} to Supabase Storage bucket 'briefs'...`);
+            const { data, error } = await supabaseClient.storage
+              .from('briefs')
+              .upload(uniqueName, f, { cacheControl: '3600', upsert: false });
+
+            if (error) throw error;
+
+            const { data: { publicUrl } } = supabaseClient.storage
+              .from('briefs')
+              .getPublicUrl(uniqueName);
+
+            console.log(`Uploaded successfully! Public URL: ${publicUrl}`);
+            resolve({
+              name: f.name,
+              type: getFileType(f.name),
+              size: f.size,
+              uploadedAt: new Date().toISOString(),
+              dataUrl: publicUrl,
+              isCloudFile: true,
+            });
+            return;
+          } catch (storageError) {
+            console.warn('Supabase Storage upload failed, falling back to Base64 dataURL:', storageError);
+          }
+        }
+
+        // 2. Fallback to FileReader Base64 encoding
         const reader = new FileReader();
         reader.onload = () => {
           resolve({
@@ -1058,6 +1175,7 @@ function FileUpload({ files, onChange }) {
             size: f.size,
             uploadedAt: new Date().toISOString(),
             dataUrl: reader.result,
+            isCloudFile: false,
           });
         };
         reader.onerror = () => {
@@ -1067,6 +1185,7 @@ function FileUpload({ files, onChange }) {
             size: f.size,
             uploadedAt: new Date().toISOString(),
             dataUrl: null,
+            isCloudFile: false,
           });
         };
         reader.readAsDataURL(f);
@@ -2378,9 +2497,17 @@ function ClientsList() {
 }
 
 function ClientProfile({ clientId }) {
-  const { data } = useData();
+  const { data, deleteClient, updateClient } = useData();
+  const { addToast } = useToast();
 
   const client = data.clients.find((c) => c.id === clientId);
+
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   if (!client) {
     return (
@@ -2395,6 +2522,35 @@ function ClientProfile({ clientId }) {
 
   const clientProjects = data.projects.filter((p) => p.clientEmail === client.email);
 
+  const startEdit = () => {
+    setName(client.name);
+    setEmail(client.email);
+    setPhone(client.phone || '');
+    setPassword(client.password || '');
+    setEditing(true);
+  };
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) {
+      addToast('Name and Email are required.', 'danger');
+      return;
+    }
+    updateClient(client.id, {
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      password: password.trim() || 'client123',
+    });
+    setEditing(false);
+  };
+
+  const handleDelete = () => {
+    deleteClient(client.id, client.email);
+    setShowDeleteModal(false);
+    navigate('clients');
+  };
+
   return (
     <div className="slide-up">
       <button className="back-link" onClick={() => navigate('clients')}>
@@ -2403,7 +2559,7 @@ function ClientProfile({ clientId }) {
 
       <h1 className="page-heading">{client.name}</h1>
 
-      <div style={{ display: 'flex', gap: '32px', marginBottom: '32px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '32px', marginBottom: '32px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div>
           <span className="form-label" style={{ display: 'block', marginBottom: '4px' }}>EMAIL</span>
           <span style={{ fontSize: '14px' }}>{client.email}</span>
@@ -2413,10 +2569,109 @@ function ClientProfile({ clientId }) {
           <span style={{ fontSize: '14px' }}>{client.phone || '--'}</span>
         </div>
         <div>
+          <span className="form-label" style={{ display: 'block', marginBottom: '4px' }}>PASSWORD</span>
+          <span style={{ fontSize: '14px' }}>{client.password || '--'}</span>
+        </div>
+        <div>
           <span className="form-label" style={{ display: 'block', marginBottom: '4px' }}>JOINED</span>
           <span style={{ fontSize: '14px' }}>{formatDate(client.joinedAt)}</span>
         </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px' }}>
+          <button className="btn btn-secondary btn-sm" onClick={startEdit}>
+            EDIT INFO
+          </button>
+          <button className="btn btn-danger btn-sm" onClick={() => setShowDeleteModal(true)}>
+            DELETE CLIENT
+          </button>
+        </div>
       </div>
+
+      {editing && (
+        <Modal
+          title="EDIT CLIENT INFO"
+          onClose={() => setEditing(false)}
+          footer={
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', width: '100%' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditing(false)}>
+                CANCEL
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleSave}>
+                SAVE CHANGES
+              </button>
+            </div>
+          }
+        >
+          <form style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '8px 0' }} onSubmit={handleSave}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">NAME</label>
+              <input
+                type="text"
+                className="form-input"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">EMAIL</label>
+              <input
+                type="email"
+                className="form-input"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">PHONE</label>
+              <input
+                type="text"
+                className="form-input"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">PASSWORD</label>
+              <input
+                type="text"
+                className="form-input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {showDeleteModal && (
+        <Modal
+          title="DELETE CLIENT"
+          onClose={() => setShowDeleteModal(false)}
+          footer={
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', width: '100%' }}>
+              <button className="btn btn-secondary" onClick={() => setShowDeleteModal(false)}>
+                CANCEL
+              </button>
+              <button className="btn btn-danger" onClick={handleDelete}>
+                DELETE PERMANENTLY
+              </button>
+            </div>
+          }
+        >
+          <div style={{ padding: '8px 0' }}>
+            <p style={{ fontSize: '14px', lineHeight: '1.5', color: 'var(--text-primary)' }}>
+              Are you sure you want to permanently delete client <strong>{client.name}</strong>?
+            </p>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: '1.4' }}>
+              Doing so will permanently delete their client profile, login access, and **all associated projects and notifications** from both local storage and the database.
+            </p>
+            <p style={{ fontSize: '13px', color: 'var(--danger)', marginTop: '12px', fontWeight: 'bold' }}>
+              WARNING: This cascading action cannot be undone.
+            </p>
+          </div>
+        </Modal>
+      )}
 
       <div className="section-heading">PROJECTS</div>
       {clientProjects.length === 0 ? (
