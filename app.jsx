@@ -138,6 +138,158 @@ const revisionsUsed = (project) => {
   return project.revisions.filter((r) => r.status === 'delivered').length;
 };
 
+// CRC32 Table Generator and Calculator for valid ZIP files
+const crc32_table = (() => {
+  const tbl = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+    }
+    tbl[n] = c;
+  }
+  return tbl;
+})();
+
+const calcCRC32 = (arr) => {
+  let crc = -1;
+  for (let i = 0; i < arr.length; i++) {
+    crc = (crc >>> 8) ^ crc32_table[(crc ^ arr[i]) & 0xFF];
+  }
+  return (crc ^ (-1)) >>> 0;
+};
+
+// Little-endian writers for raw binary headers
+const writeUint16 = (arr, offset, val) => {
+  arr[offset] = val & 0xFF;
+  arr[offset + 1] = (val >> 8) & 0xFF;
+};
+
+const writeUint32 = (arr, offset, val) => {
+  arr[offset] = val & 0xFF;
+  arr[offset + 1] = (val >> 8) & 0xFF;
+  arr[offset + 2] = (val >> 16) & 0xFF;
+  arr[offset + 3] = (val >> 24) & 0xFF;
+};
+
+// Base64 string dataUrl to Uint8Array converter
+const dataUrlToUint8Array = (dataUrl) => {
+  const base64Marker = ';base64,';
+  const base64Index = dataUrl.indexOf(base64Marker);
+  if (base64Index === -1) return null;
+  const base64 = dataUrl.substring(base64Index + base64Marker.length);
+  const raw = window.atob(base64);
+  const rawLength = raw.length;
+  const array = new Uint8Array(new ArrayBuffer(rawLength));
+  for (let i = 0; i < rawLength; i++) {
+    array[i] = raw.charCodeAt(i);
+  }
+  return array;
+};
+
+// Fetch remote URL content (e.g. Supabase Storage files) into a Uint8Array
+const fetchUrlToUint8Array = async (url) => {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+    const buffer = await response.arrayBuffer();
+    return new Uint8Array(buffer);
+  } catch (e) {
+    console.error('Failed to fetch remote file content for ZIP packaging:', e);
+    return null;
+  }
+};
+
+// Creates a pure uncompressed (STORE) ZIP archive Blob from a list of { name, bytes }
+const createZipArchive = (fileList) => {
+  const textEncoder = new TextEncoder();
+  const parts = [];
+  const entries = [];
+  let currentOffset = 0;
+
+  for (const file of fileList) {
+    const filenameBytes = textEncoder.encode(file.name);
+    const dataBytes = file.bytes;
+    const crc = calcCRC32(dataBytes);
+    const size = dataBytes.length;
+
+    // Local file header (30 bytes + filename)
+    const localHeader = new Uint8Array(30 + filenameBytes.length);
+    writeUint32(localHeader, 0, 0x04034b50); // Signature
+    writeUint16(localHeader, 4, 10);          // Version needed (1.0)
+    writeUint16(localHeader, 6, 0);           // General purpose bit flag
+    writeUint16(localHeader, 8, 0);           // Compression method (STORE=0)
+    writeUint16(localHeader, 10, 0);          // Last mod file time (0)
+    writeUint16(localHeader, 12, 0);          // Last mod file date (0)
+    writeUint32(localHeader, 14, crc);        // CRC-32
+    writeUint32(localHeader, 18, size);       // Compressed size
+    writeUint32(localHeader, 22, size);       // Uncompressed size
+    writeUint16(localHeader, 26, filenameBytes.length); // Filename length
+    writeUint16(localHeader, 28, 0);          // Extra field length
+    localHeader.set(filenameBytes, 30);
+
+    parts.push(localHeader);
+    parts.push(dataBytes);
+
+    // Save metadata for Central Directory
+    entries.push({
+      nameBytes: filenameBytes,
+      crc: crc,
+      size: size,
+      offset: currentOffset
+    });
+
+    currentOffset += localHeader.length + size;
+  }
+
+  // Central Directory File Headers
+  let centralDirSize = 0;
+  const centralDirParts = [];
+
+  for (const entry of entries) {
+    const cdHeader = new Uint8Array(46 + entry.nameBytes.length);
+    writeUint32(cdHeader, 0, 0x02014b50);  // Signature
+    writeUint16(cdHeader, 4, 20);           // Version made by
+    writeUint16(cdHeader, 6, 10);           // Version needed to extract
+    writeUint16(cdHeader, 8, 0);            // General purpose bit flag
+    writeUint16(cdHeader, 10, 0);           // Compression method (STORE)
+    writeUint16(cdHeader, 12, 0);           // Last mod time
+    writeUint16(cdHeader, 14, 0);           // Last mod date
+    writeUint32(cdHeader, 16, entry.crc);   // CRC-32
+    writeUint32(cdHeader, 20, entry.size);  // Compressed size
+    writeUint32(cdHeader, 24, entry.size);  // Uncompressed size
+    writeUint16(cdHeader, 28, entry.nameBytes.length); // Filename length
+    writeUint16(cdHeader, 30, 0);           // Extra field length
+    writeUint16(cdHeader, 32, 0);           // File comment length
+    writeUint16(cdHeader, 34, 0);           // Disk number start
+    writeUint16(cdHeader, 36, 0);           // Internal file attributes
+    writeUint32(cdHeader, 38, 0);           // External file attributes
+    writeUint32(cdHeader, 42, entry.offset); // Offset of local header
+    cdHeader.set(entry.nameBytes, 46);
+
+    parts.push(cdHeader);
+    centralDirSize += cdHeader.length;
+  }
+
+  parts.push(...centralDirParts);
+
+  // End of Central Directory Record (EOCD)
+  const eocd = new Uint8Array(22);
+  writeUint32(eocd, 0, 0x06054b50);   // Signature
+  writeUint16(eocd, 4, 0);            // Number of this disk
+  writeUint16(eocd, 6, 0);            // Disk where central directory starts
+  writeUint16(eocd, 8, entries.length); // Number of records on this disk
+  writeUint16(eocd, 10, entries.length); // Total number of records
+  writeUint32(eocd, 12, centralDirSize); // Size of central directory
+  writeUint32(eocd, 16, currentOffset); // Offset of start of central directory
+  writeUint16(eocd, 20, 0);           // Comment length
+
+  parts.push(eocd);
+
+  return new Blob(parts, { type: 'application/zip' });
+};
+
+
 
 // ============================================================
 // 2. SEED DATA
@@ -1921,6 +2073,60 @@ function FreelancerProjectDetail({ projectId }) {
   const [concludeAmountPaid, setConcludeAmountPaid] = useState('');
   const [concludeNotes, setConcludeNotes] = useState('');
 
+  const handleDownloadAll = async (phaseName, filesList) => {
+    if (!filesList || filesList.length === 0) return;
+
+    addToast('Preparing download ZIP archive...', 'info');
+
+    try {
+      const fetchedFiles = [];
+      for (const f of filesList) {
+        let bytes = null;
+        if (f.dataUrl) {
+          if (f.dataUrl.startsWith('data:')) {
+            bytes = dataUrlToUint8Array(f.dataUrl);
+          } else {
+            // Fetch remote file
+            bytes = await fetchUrlToUint8Array(f.dataUrl);
+          }
+        }
+
+        if (bytes) {
+          fetchedFiles.push({
+            name: f.name,
+            bytes: bytes
+          });
+        } else {
+          console.warn(`Could not retrieve bytes for file: ${f.name}`);
+        }
+      }
+
+      if (fetchedFiles.length === 0) {
+        addToast('Failed to retrieve any file contents to ZIP.', 'danger');
+        return;
+      }
+
+      // Naming format: Revision2_ProjectName.zip
+      const cleanPhaseName = phaseName.replace('Round ', '').replace(/\s+/g, '');
+      const cleanProjectName = project.name.replace(/\s+/g, '_');
+      const zipFileName = `${cleanPhaseName}_${cleanProjectName}.zip`;
+
+      const zipBlob = createZipArchive(fetchedFiles);
+
+      const downloadLink = document.createElement('a');
+      downloadLink.href = URL.createObjectURL(zipBlob);
+      downloadLink.download = zipFileName;
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      document.body.removeChild(downloadLink);
+
+      addToast(`Successfully downloaded ${zipFileName}!`, 'success');
+    } catch (e) {
+      console.error('Failed to generate ZIP archive', e);
+      addToast('Failed to generate ZIP archive.', 'danger');
+    }
+  };
+
   const handleDeleteProject = () => {
     deleteProject(project.id);
     setShowDeleteModal(false);
@@ -2055,7 +2261,18 @@ function FreelancerProjectDetail({ projectId }) {
           <div className="phase-step__content">
             {brief && <div className="phase-step__brief">{brief}</div>}
             <div style={{ marginBottom: '16px' }}>
-              <div className="form-label" style={{ marginBottom: '8px' }}>FILES</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div className="form-label" style={{ marginBottom: 0 }}>FILES</div>
+                {files && files.length > 0 && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: '4px 10px', fontSize: '11px', border: '1px solid var(--border-color)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}
+                    onClick={(e) => { e.stopPropagation(); handleDownloadAll(name, files); }}
+                  >
+                    DOWNLOAD ALL (.ZIP)
+                  </button>
+                )}
+              </div>
               <FileList files={files} />
             </div>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
@@ -2070,12 +2287,27 @@ function FreelancerProjectDetail({ projectId }) {
         {status === 'delivered' && isExpanded && (
           <div className="phase-step__content">
             {brief && <div className="phase-step__brief">{brief}</div>}
-            <FileList files={files} />
+            <div style={{ marginBottom: '16px', marginTop: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div className="form-label" style={{ marginBottom: 0 }}>FILES</div>
+                {files && files.length > 0 && (
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ padding: '4px 10px', fontSize: '11px', border: '1px solid var(--border-color)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}
+                    onClick={(e) => { e.stopPropagation(); handleDownloadAll(name, files); }}
+                  >
+                    DOWNLOAD ALL (.ZIP)
+                  </button>
+                )}
+              </div>
+              <FileList files={files} />
+            </div>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '12px' }}>
               Delivered on {formatDate(deliveredAt)}
             </p>
           </div>
         )}
+
       </div>
     );
   };
