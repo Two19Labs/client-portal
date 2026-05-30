@@ -1138,72 +1138,154 @@ function EmptyState({ message, actionLabel, onAction }) {
 // ---- FileUpload ----
 function FileUpload({ files, onChange }) {
   const inputRef = useRef(null);
+  const [uploadQueue, setUploadQueue] = useState([]);
+
+  const uploadSingleFile = (f, onProgress) => {
+    return new Promise((resolve) => {
+      const uniqueName = `${uuid()}_${f.name}`;
+      const { url: cachedUrl, key: cachedKey } = getSupabaseConfig();
+
+      // 1. Try uploading to Supabase Storage bucket 'briefs' via raw XMLHttpRequest if configured
+      if (supabaseClient && cachedUrl && cachedKey) {
+        try {
+          console.log(`Attempting to upload ${f.name} via XMLHttpRequest to Supabase Storage...`);
+          const xhr = new XMLHttpRequest();
+          const uploadUrl = `${cachedUrl}/storage/v1/object/briefs/${encodeURIComponent(uniqueName)}`;
+          
+          xhr.open('POST', uploadUrl, true);
+          xhr.setRequestHeader('Authorization', `Bearer ${cachedKey}`);
+          xhr.setRequestHeader('apikey', cachedKey);
+          xhr.setRequestHeader('Content-Type', f.type || 'application/octet-stream');
+
+          // Track upload percentage
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percentComplete = Math.round((event.loaded / event.total) * 100);
+              onProgress(percentComplete);
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              const publicUrl = `${cachedUrl}/storage/v1/object/public/briefs/${encodeURIComponent(uniqueName)}`;
+
+              console.log(`Uploaded successfully via XHR! Public URL: ${publicUrl}`);
+              resolve({
+                name: f.name,
+                type: getFileType(f.name),
+                size: f.size,
+                uploadedAt: new Date().toISOString(),
+                dataUrl: publicUrl,
+                isCloudFile: true,
+              });
+            } else {
+              console.warn(`XHR upload failed with status ${xhr.status}, falling back to FileReader`);
+              fallbackReader(f, onProgress, resolve);
+            }
+          };
+
+          xhr.onerror = () => {
+            console.warn('XHR upload error, falling back to FileReader');
+            fallbackReader(f, onProgress, resolve);
+          };
+
+          xhr.send(f);
+          return;
+        } catch (xhrError) {
+          console.warn('XHR upload initialization failed, falling back to FileReader:', xhrError);
+        }
+      }
+
+      // 2. Fallback to FileReader Base64 encoding
+      fallbackReader(f, onProgress, resolve);
+    });
+  };
+
+  const fallbackReader = (f, onProgress, resolve) => {
+    const reader = new FileReader();
+    
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = Math.round((event.loaded / event.total) * 100);
+        onProgress(percentComplete);
+      }
+    };
+
+    reader.onload = () => {
+      onProgress(100);
+      resolve({
+        name: f.name,
+        type: getFileType(f.name),
+        size: f.size,
+        uploadedAt: new Date().toISOString(),
+        dataUrl: reader.result,
+        isCloudFile: false,
+      });
+    };
+
+    reader.onerror = () => {
+      resolve({
+        name: f.name,
+        type: getFileType(f.name),
+        size: f.size,
+        uploadedAt: new Date().toISOString(),
+        dataUrl: null,
+        isCloudFile: false,
+      });
+    };
+
+    reader.readAsDataURL(f);
+  };
 
   const handleFiles = (e) => {
     const filesArray = Array.from(e.target.files);
     if (filesArray.length === 0) return;
 
+    // Initialize new items in queue
+    const newQueueItems = filesArray.map((f) => ({
+      id: uuid(),
+      name: f.name,
+      size: f.size,
+      progress: 0,
+      status: 'uploading',
+    }));
+
+    setUploadQueue((prev) => [...prev, ...newQueueItems]);
+
     const promises = filesArray.map((f) => {
-      return new Promise(async (resolve) => {
-        const uniqueName = `${uuid()}_${f.name}`;
+      const updateProgress = (percent) => {
+        setUploadQueue((prev) =>
+          prev.map((item) => (item.name === f.name ? { ...item, progress: percent } : item))
+        );
+      };
 
-        // 1. Try uploading to Supabase Storage bucket 'briefs' if connected
-        if (supabaseClient) {
-          try {
-            console.log(`Attempting to upload ${f.name} to Supabase Storage bucket 'briefs'...`);
-            const { data, error } = await supabaseClient.storage
-              .from('briefs')
-              .upload(uniqueName, f, { cacheControl: '3600', upsert: false });
-
-            if (error) throw error;
-
-            const { data: { publicUrl } } = supabaseClient.storage
-              .from('briefs')
-              .getPublicUrl(uniqueName);
-
-            console.log(`Uploaded successfully! Public URL: ${publicUrl}`);
-            resolve({
-              name: f.name,
-              type: getFileType(f.name),
-              size: f.size,
-              uploadedAt: new Date().toISOString(),
-              dataUrl: publicUrl,
-              isCloudFile: true,
-            });
-            return;
-          } catch (storageError) {
-            console.warn('Supabase Storage upload failed, falling back to Base64 dataURL:', storageError);
-          }
-        }
-
-        // 2. Fallback to FileReader Base64 encoding
-        const reader = new FileReader();
-        reader.onload = () => {
-          resolve({
-            name: f.name,
-            type: getFileType(f.name),
-            size: f.size,
-            uploadedAt: new Date().toISOString(),
-            dataUrl: reader.result,
-            isCloudFile: false,
-          });
-        };
-        reader.onerror = () => {
-          resolve({
-            name: f.name,
-            type: getFileType(f.name),
-            size: f.size,
-            uploadedAt: new Date().toISOString(),
-            dataUrl: null,
-            isCloudFile: false,
-          });
-        };
-        reader.readAsDataURL(f);
-      });
+      return uploadSingleFile(f, updateProgress)
+        .then((result) => {
+          setUploadQueue((prev) =>
+            prev.map((item) =>
+              item.name === f.name ? { ...item, status: 'success', progress: 100 } : item
+            )
+          );
+          return result;
+        })
+        .catch((err) => {
+          console.error(`Error uploading ${f.name}:`, err);
+          setUploadQueue((prev) =>
+            prev.map((item) => (item.name === f.name ? { ...item, status: 'error' } : item))
+          );
+          return null;
+        });
     });
 
     Promise.all(promises).then((readFiles) => {
-      onChange([...files, ...readFiles]);
+      const validFiles = readFiles.filter(Boolean);
+      onChange([...files, ...validFiles]);
+
+      // Delay queue clearance by 1.5s to allow satisfying completion checkmark to be viewed
+      setTimeout(() => {
+        setUploadQueue((prev) => prev.filter((item) => item.status !== 'success'));
+      }, 1500);
+
       if (inputRef.current) inputRef.current.value = '';
     });
   };
@@ -1218,6 +1300,39 @@ function FileUpload({ files, onChange }) {
         <input type="file" multiple onChange={handleFiles} ref={inputRef} />
         <div className="upload-zone__label">Click to upload files</div>
       </div>
+
+      {uploadQueue.length > 0 && (
+        <div className="upload-queue">
+          <div className="upload-queue__title">Uploading Queue</div>
+          {uploadQueue.map((item) => (
+            <div className="upload-queue-item" key={item.id}>
+              <div className="upload-queue-item__meta">
+                <span className="upload-queue-item__name" title={item.name}>{item.name}</span>
+                <span className="upload-queue-item__status">
+                  {item.status === 'uploading' && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="spinner-mini"></span> {item.progress}%
+                    </span>
+                  )}
+                  {item.status === 'success' && (
+                    <span style={{ color: 'var(--success)', fontWeight: 'bold' }}>✓ Done</span>
+                  )}
+                  {item.status === 'error' && (
+                    <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>✗ Failed</span>
+                  )}
+                </span>
+              </div>
+              <div className="upload-queue-item__bar">
+                <div
+                  className={`upload-queue-item__progress upload-queue-item__progress--${item.status}`}
+                  style={{ width: `${item.progress}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {files.length > 0 && (
         <div className="file-list" style={{ marginTop: '12px' }}>
           {files.map((file, i) => (
@@ -1248,6 +1363,7 @@ function FileUpload({ files, onChange }) {
     </div>
   );
 }
+
 
 // ---- FileList (read only) ----
 function FileList({ files }) {
@@ -3513,8 +3629,45 @@ function ClientPhaseCard({ project, phaseType, round, title, phaseData, descript
   const [files, setFiles] = useState([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const isLoadedRef = useRef(false);
 
   const status = phaseData.status;
+
+  // Hydrate draft from localStorage on mount/switch
+  useEffect(() => {
+    isLoadedRef.current = false;
+    const draftKey = `submission_draft_${project.id}_${phaseType}_${round || ''}`;
+    const stored = localStorage.getItem(draftKey);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setBrief(parsed.brief || '');
+        setFiles(parsed.files || []);
+      } catch (e) {
+        console.error('Failed to load submission draft', e);
+      }
+    } else {
+      setBrief('');
+      setFiles([]);
+    }
+
+    const timer = setTimeout(() => {
+      isLoadedRef.current = true;
+    }, 50);
+
+    return () => clearTimeout(timer);
+  }, [project.id, phaseType, round]);
+
+  // Persist draft to localStorage on brief/files change
+  useEffect(() => {
+    if (!isLoadedRef.current) return;
+    const draftKey = `submission_draft_${project.id}_${phaseType}_${round || ''}`;
+    if (brief.trim() || files.length > 0) {
+      localStorage.setItem(draftKey, JSON.stringify({ brief, files }));
+    } else {
+      localStorage.removeItem(draftKey);
+    }
+  }, [brief, files, project.id, phaseType, round]);
 
   const handleSubmit = () => {
     submitPhase(
@@ -3524,9 +3677,16 @@ function ClientPhaseCard({ project, phaseType, round, title, phaseData, descript
       brief,
       files
     );
+
+    // Clear draft
+    const draftKey = `submission_draft_${project.id}_${phaseType}_${round || ''}`;
+    localStorage.removeItem(draftKey);
+    isLoadedRef.current = false;
+
     setShowConfirm(false);
     addToast('Submission locked and sent to your designer.', 'success');
   };
+
 
   // pending_client — client needs to submit
   if (status === 'pending_client') {
