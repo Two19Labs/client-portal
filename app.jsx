@@ -1115,11 +1115,14 @@ function DataProvider({ children }) {
     });
 
     if (supabaseClient) {
-      supabaseClient.from('clients').delete().eq('id', clientId).then(({ error }) => {
-        if (error) console.error('Supabase client delete error', error);
-      });
-      supabaseClient.from('projects').delete().eq('client_email', clientEmail).then(({ error }) => {
-        if (error) console.error('Supabase projects cascade delete error', error);
+      // Delete associated projects first to clear foreign key constraints
+      supabaseClient.from('projects').delete().eq('client_email', clientEmail).then(({ error: pErr }) => {
+        if (pErr) console.error('Supabase projects cascade delete error', pErr);
+        
+        // Once projects are successfully removed, delete the client entry
+        supabaseClient.from('clients').delete().eq('id', clientId).then(({ error: cErr }) => {
+          if (cErr) console.error('Supabase client delete error', cErr);
+        });
       });
     }
     addToast('Client and all associated projects deleted.', 'success');
