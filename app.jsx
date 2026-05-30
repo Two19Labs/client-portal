@@ -1291,6 +1291,7 @@ function EmptyState({ message, actionLabel, onAction }) {
 function FileUpload({ files, onChange }) {
   const inputRef = useRef(null);
   const [uploadQueue, setUploadQueue] = useState([]);
+  const { previewFile } = useFilePreview();
 
   const uploadSingleFile = (f, onProgress) => {
     return new Promise((resolve) => {
@@ -1490,16 +1491,13 @@ function FileUpload({ files, onChange }) {
           {files.map((file, i) => (
             <div className="file-item" key={i}>
               {file.dataUrl ? (
-                <a
-                  href={file.dataUrl}
-                  download={file.name}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <span
                   className="file-item__name"
                   style={{ textDecoration: 'underline', color: 'var(--text-primary)', cursor: 'pointer' }}
+                  onClick={() => previewFile(file)}
                 >
                   {file.name}
-                </a>
+                </span>
               ) : (
                 <span className="file-item__name">{file.name}</span>
               )}
@@ -1519,22 +1517,20 @@ function FileUpload({ files, onChange }) {
 
 // ---- FileList (read only) ----
 function FileList({ files }) {
+  const { previewFile } = useFilePreview();
   if (!files || files.length === 0) return <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No files attached.</p>;
   return (
     <div className="file-list">
       {files.map((file, i) => (
         <div className="file-item" key={i}>
           {file.dataUrl ? (
-            <a
-              href={file.dataUrl}
-              download={file.name}
-              target="_blank"
-              rel="noopener noreferrer"
+            <span
               className="file-item__name"
               style={{ textDecoration: 'underline', color: 'var(--text-primary)', cursor: 'pointer' }}
+              onClick={() => previewFile(file)}
             >
               {file.name}
-            </a>
+            </span>
           ) : (
             <span className="file-item__name">{file.name}</span>
           )}
@@ -1556,6 +1552,7 @@ function FileList({ files }) {
     </div>
   );
 }
+
 
 // ---- ThemeToggle ----
 function ThemeToggle() {
@@ -4161,8 +4158,216 @@ function ProjectsPage() {
 }
 
 
+
+// ============================================================
+// 15.5 FILE PREVIEW SYSTEM
+// ============================================================
+
+const FilePreviewContext = createContext();
+
+const useFilePreview = () => useContext(FilePreviewContext);
+
+function FilePreviewModal({ file, zoom, setZoom, rotate, setRotate, onClose }) {
+  const [textContents, setTextContents] = useState('');
+  const [isLoadingText, setIsLoadingText] = useState(false);
+  const ext = file.name.split('.').pop().toLowerCase();
+  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext);
+  const isPDF = ext === 'pdf';
+  const isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv'].includes(ext);
+  const isAudio = ['mp3', 'wav', 'ogg', 'aac'].includes(ext);
+  const isText = ['txt', 'csv', 'json', 'md', 'xml', 'js', 'css', 'html'].includes(ext);
+
+  useEffect(() => {
+    if (isText && file.dataUrl) {
+      setIsLoadingText(true);
+      setTextContents('');
+      if (file.dataUrl.startsWith('data:')) {
+        try {
+          const base64Index = file.dataUrl.indexOf(';base64,');
+          if (base64Index !== -1) {
+            const base64 = file.dataUrl.substring(base64Index + 8);
+            const decoded = atob(base64);
+            setTextContents(decoded);
+          }
+        } catch (e) {
+          setTextContents('Failed to decode text file content.');
+        } finally {
+          setIsLoadingText(false);
+        }
+      } else {
+        fetch(file.dataUrl)
+          .then((res) => {
+            if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+            return res.text();
+          })
+          .then((text) => setTextContents(text))
+          .catch((err) => {
+            console.error(err);
+            setTextContents('Failed to retrieve remote text content.');
+          })
+          .finally(() => setIsLoadingText(false));
+      }
+    }
+  }, [file.dataUrl, isText]);
+
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 2000 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal__header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="modal__title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
+            PREVIEW: {file.name}
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ fontSize: '16px', fontWeight: 'bold' }}>×</button>
+        </div>
+        
+        <div className="modal__body" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '350px', backgroundColor: 'var(--bg-primary)', padding: '24px' }}>
+          {isImage && (
+            <div style={{ overflow: 'hidden', border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '400px', backgroundColor: '#000', position: 'relative' }}>
+              <img
+                src={file.dataUrl}
+                alt={file.name}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  transform: `scale(${zoom}) rotate(${rotate}deg)`,
+                  transition: 'transform 0.15s ease-out',
+                  objectFit: 'contain'
+                }}
+              />
+            </div>
+          )}
+
+          {isPDF && (
+            <div style={{ width: '100%', height: '500px', border: '1px solid var(--border-color)' }}>
+              <iframe
+                src={file.dataUrl}
+                title={file.name}
+                style={{ width: '100%', height: '100%', border: 'none' }}
+              />
+            </div>
+          )}
+
+          {isVideo && (
+            <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+              <video
+                controls
+                src={file.dataUrl}
+                style={{ maxWidth: '100%', maxHeight: '450px', border: '1px solid var(--border-color)' }}
+              />
+            </div>
+          )}
+
+          {isAudio && (
+            <div style={{ width: '100%', padding: '24px 0' }}>
+              <audio
+                controls
+                src={file.dataUrl}
+                style={{ width: '100%' }}
+              />
+            </div>
+          )}
+
+          {isText && (
+            <div style={{ width: '100%', height: '400px', overflow: 'auto', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-input)', padding: '16px' }}>
+              {isLoadingText ? (
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                  <span className="spinner-mini" style={{ width: '24px', height: '24px', borderWidth: '3px' }}></span>
+                </div>
+              ) : (
+                <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '13px', color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+                  {textContents}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {!isImage && !isPDF && !isVideo && !isAudio && !isText && (
+            <div style={{ textAlign: 'center', padding: '40px 24px', maxWidth: '400px' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>📂</div>
+              <h3 style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '8px' }}>Preview Unsupported</h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px' }}>
+                This file format ({ext.toUpperCase()}) cannot be previewed directly inside the browser.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="modal__footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {isImage ? (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-secondary btn-sm" onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}>ZOOM -</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setZoom(z => Math.min(3, z + 0.25))}>ZOOM +</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setRotate(r => (r + 90) % 360)}>ROTATE ↻</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setZoom(1); setRotate(0); }} style={{ border: '1px solid var(--border-color)' }}>RESET</button>
+            </div>
+          ) : (
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Type: {ext.toUpperCase()} &middot; Size: {formatFileSize(file.size)}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '12px' }}>
+            {file.dataUrl && (
+              <a
+                href={file.dataUrl}
+                download={file.name}
+                className="btn btn-primary"
+                style={{ padding: '8px 16px', fontSize: '13px' }}
+              >
+                DOWNLOAD FILE
+              </a>
+            )}
+            <button className="btn btn-secondary" onClick={onClose}>CLOSE</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilePreviewProvider({ children }) {
+  const [activeFile, setActiveFile] = useState(null);
+  const [zoom, setZoom] = useState(1);
+  const [rotate, setRotate] = useState(0);
+
+  const previewFile = useCallback((file) => {
+    setActiveFile(file);
+    setZoom(1);
+    setRotate(0);
+  }, []);
+
+  const closePreview = useCallback(() => {
+    setActiveFile(null);
+  }, []);
+
+  return (
+    <FilePreviewContext.Provider value={{ previewFile }}>
+      {children}
+      {activeFile && (
+        <FilePreviewModal
+          file={activeFile}
+          zoom={zoom}
+          setZoom={setZoom}
+          rotate={rotate}
+          setRotate={setRotate}
+          onClose={closePreview}
+        />
+      )}
+    </FilePreviewContext.Provider>
+  );
+}
+
+
 // ============================================================
 // 16. APP ROOT — HASH ROUTING + AUTH GATE
+
 // ============================================================
 
 function parseHash() {
@@ -4188,11 +4393,14 @@ function App() {
     <ToastProvider>
       <AuthProvider>
         <DataProvider>
-          <AppRouter route={route} />
+          <FilePreviewProvider>
+            <AppRouter route={route} />
+          </FilePreviewProvider>
         </DataProvider>
       </AuthProvider>
     </ToastProvider>
   );
+
 }
 
 function AppRouter({ route }) {
