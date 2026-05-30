@@ -147,7 +147,6 @@ table { border-collapse: collapse; width: 100%; }
 }
 
 .main-content {
-  margin-left: var(--sidebar-width);
   padding: 40px;
   max-width: calc(var(--max-content) + 80px);
   min-height: 100vh;
