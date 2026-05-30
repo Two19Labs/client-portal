@@ -522,9 +522,13 @@ function DataProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [isConnected, setIsConnected] = useState(!!supabaseClient);
 
+  // Track active fetch requests to resolve out-of-order race conditions on sequential database mutations
+  const latestFetchId = useRef(0);
+
   // Sync data from Supabase
   const fetchFromSupabase = useCallback(async (clientToUse = supabaseClient) => {
     if (!clientToUse) return;
+    const fetchId = ++latestFetchId.current;
     setLoading(true);
     try {
       // 1. Fetch clients
@@ -538,6 +542,8 @@ function DataProvider({ children }) {
         const { data: reProjects } = await clientToUse.from('projects').select('*');
         const { data: reNotifs } = await clientToUse.from('notifications').select('*').order('created_at', { ascending: false });
         
+        if (fetchId !== latestFetchId.current) return;
+
         const fetchedData = {
           clients: reClients || [],
           projects: (reProjects || []).map(p => ({
@@ -579,6 +585,8 @@ function DataProvider({ children }) {
       const { data: notifications, error: nErr } = await clientToUse.from('notifications').select('*').order('created_at', { ascending: false });
       if (nErr) throw nErr;
 
+      if (fetchId !== latestFetchId.current) return;
+
       const fetchedData = {
         clients: clients || [],
         projects: (projects || []).map(p => ({
@@ -612,9 +620,13 @@ function DataProvider({ children }) {
       setData(fetchedData);
       saveData(fetchedData); // update offline cache
     } catch (e) {
-      console.error('Failed to sync with Supabase', e);
+      if (fetchId === latestFetchId.current) {
+        console.error('Failed to sync with Supabase', e);
+      }
     } finally {
-      setLoading(false);
+      if (fetchId === latestFetchId.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -672,6 +684,7 @@ function DataProvider({ children }) {
   }, [addToast, fetchFromSupabase]);
 
   const addClient = useCallback((client) => {
+    latestFetchId.current++; // Invalidate any pending background fetches
     const newClient = { ...client, id: uuid(), role: 'client', joinedAt: new Date().toISOString() };
     setData((prev) => {
       const updated = {
@@ -700,6 +713,7 @@ function DataProvider({ children }) {
   }, [addToast]);
 
   const addProject = useCallback((project) => {
+    latestFetchId.current++; // Invalidate any pending background fetches
     const projectId = uuid();
     const now = new Date().toISOString();
     const newProject = {
@@ -1075,6 +1089,7 @@ function DataProvider({ children }) {
   }, []);
 
   const deleteProject = useCallback((projectId) => {
+    latestFetchId.current++; // Invalidate any pending background fetches
     setData((prev) => {
       const updated = {
         ...prev,
@@ -1097,6 +1112,7 @@ function DataProvider({ children }) {
   }, [addToast]);
 
   const deleteClient = useCallback((clientId, clientEmail) => {
+    latestFetchId.current++; // Invalidate any pending background fetches
     setData((prev) => {
       const updatedClients = prev.clients.filter((c) => c.id !== clientId);
       const updatedProjects = prev.projects.filter((p) => p.clientEmail !== clientEmail);
