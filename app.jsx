@@ -812,17 +812,25 @@ function DataProvider({ children }) {
     });
   }, []);
 
-  const concludeProject = useCallback((projectId, deliverableLink) => {
+  const concludeProject = useCallback((projectId, options = {}) => {
     const now = new Date().toISOString();
+    const finalEndDate = options.endDate ? new Date(options.endDate).toISOString() : now;
+    const finalDeliverableLink = options.deliverableLink || '';
+
     setData((prev) => {
       const project = prev.projects.find((p) => p.id === projectId);
       if (!project) return prev;
 
+      const finalAmountPaid = options.amountPaid !== undefined ? parseFloat(options.amountPaid) : project.amountPaid;
+      const finalNotes = options.notes !== undefined ? options.notes : project.notes;
+
       const updatedProject = {
         ...project,
         status: 'concluded',
-        endDate: now,
-        deliverableLink: deliverableLink || '',
+        endDate: finalEndDate,
+        deliverableLink: finalDeliverableLink,
+        amountPaid: finalAmountPaid,
+        notes: finalNotes,
       };
 
       const notification = {
@@ -830,7 +838,7 @@ function DataProvider({ children }) {
         type: 'project_concluded',
         forEmail: project.clientEmail,
         projectId: projectId,
-        message: `Your project ${project.name} has been completed and delivered.${deliverableLink ? ' View your website at the deliverable link.' : ''}`,
+        message: `Your project ${project.name} has been completed and delivered.${finalDeliverableLink ? ' View your website at the deliverable link.' : ''}`,
         read: false,
         createdAt: now,
       };
@@ -839,7 +847,9 @@ function DataProvider({ children }) {
         supabaseClient.from('projects').update({
           status: updatedProject.status,
           end_date: updatedProject.endDate,
-          deliverable_link: updatedProject.deliverableLink
+          deliverable_link: updatedProject.deliverableLink,
+          amount_paid: updatedProject.amountPaid,
+          notes: updatedProject.notes
         }).eq('id', projectId).then(({ error }) => { if (error) console.error(error); });
 
         supabaseClient.from('notifications').insert([{
@@ -1789,11 +1799,38 @@ function FreelancerProjectDetail({ projectId }) {
   const [notesEdited, setNotesEdited] = useState(false);
   const [deliverableLink, setDeliverableLink] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showConcludeModal, setShowConcludeModal] = useState(false);
+  const [concludeEndDate, setConcludeEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [concludeDeliverableLink, setConcludeDeliverableLink] = useState('');
+  const [concludeAmountPaid, setConcludeAmountPaid] = useState('');
+  const [concludeNotes, setConcludeNotes] = useState('');
 
   const handleDeleteProject = () => {
     deleteProject(project.id);
     setShowDeleteModal(false);
     navigate('dashboard');
+  };
+
+  const startConclude = () => {
+    if (project) {
+      setConcludeDeliverableLink(project.deliverableLink || '');
+      setConcludeAmountPaid(String(project.amountPaid));
+      setConcludeNotes(project.notes || '');
+      setConcludeEndDate(new Date().toISOString().split('T')[0]);
+      setShowConcludeModal(true);
+    }
+  };
+
+  const handleConcludeSubmit = () => {
+    concludeProject(project.id, {
+      deliverableLink: concludeDeliverableLink.trim(),
+      endDate: concludeEndDate,
+      amountPaid: parseFloat(concludeAmountPaid) || 0,
+      notes: concludeNotes.trim(),
+    });
+    setShowConcludeModal(false);
+    addToast('Project concluded and archived.', 'success');
+    navigate('archive');
   };
 
   useEffect(() => {
@@ -1858,12 +1895,6 @@ function FreelancerProjectDetail({ projectId }) {
     updateNotes(project.id, notesValue);
     setNotesEdited(false);
     addToast('Notes saved.', 'success');
-  };
-
-  const handleConclude = () => {
-    concludeProject(project.id, deliverableLink);
-    addToast('Project concluded and archived.', 'success');
-    navigate('archive');
   };
 
   const balance = project.amountAgreed - project.amountPaid;
@@ -2026,25 +2057,7 @@ function FreelancerProjectDetail({ projectId }) {
             </div>
           </div>
 
-          {/* Conclude section */}
-          {canConclude && (
-            <div className="card" style={{ marginTop: '32px', padding: '24px' }}>
-              <div className="section-heading">CONCLUDE PROJECT</div>
-              <div className="form-group">
-                <label className="form-label">DELIVERABLE LINK</label>
-                <input
-                  type="url"
-                  className="form-input"
-                  value={deliverableLink}
-                  onChange={(e) => setDeliverableLink(e.target.value)}
-                  placeholder="https://example.com"
-                />
-              </div>
-              <button className="btn btn-success btn-full" onClick={handleConclude}>
-                CONCLUDE + ARCHIVE PROJECT
-              </button>
-            </div>
-          )}
+
         </div>
 
         {/* Right column: Project Details Card */}
@@ -2130,6 +2143,16 @@ function FreelancerProjectDetail({ projectId }) {
 
             <hr className="divider" style={{ margin: '24px 0 16px 0' }} />
 
+            {project.status === 'active' && (
+              <div style={{ marginBottom: '12px' }}>
+                <button
+                  className="btn btn-success btn-full"
+                  onClick={startConclude}
+                >
+                  CONCLUDE PROJECT
+                </button>
+              </div>
+            )}
             <div>
               <button
                 className="btn btn-danger btn-full"
@@ -2165,6 +2188,88 @@ function FreelancerProjectDetail({ projectId }) {
               WARNING: This action cannot be undone.
             </p>
           </div>
+        </Modal>
+      )}
+
+      {showConcludeModal && (
+        <Modal
+          title="CONCLUDE & ARCHIVE PROJECT"
+          onClose={() => setShowConcludeModal(false)}
+          footer={
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', width: '100%' }}>
+              <button className="btn btn-secondary" onClick={() => setShowConcludeModal(false)}>
+                CANCEL
+              </button>
+              <button className="btn btn-success" onClick={handleConcludeSubmit}>
+                CONCLUDE & ARCHIVE
+              </button>
+            </div>
+          }
+        >
+          <form style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '8px 0' }} onSubmit={(e) => { e.preventDefault(); handleConcludeSubmit(); }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              conclude and archive this project. The client will be notified and given the final deliverable link.
+            </p>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">DELIVERABLE LINK (OPTIONAL)</label>
+              <input
+                type="url"
+                className="form-input"
+                value={concludeDeliverableLink}
+                onChange={(e) => setConcludeDeliverableLink(e.target.value)}
+                placeholder="https://example.com"
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">PROJECT END DATE</label>
+              <input
+                type="date"
+                className="form-input"
+                value={concludeEndDate}
+                onChange={(e) => setConcludeEndDate(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">PAYMENT UPDATE (INR)</label>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  className="form-input"
+                  style={{ flex: 1 }}
+                  value={concludeAmountPaid}
+                  onChange={(e) => setConcludeAmountPaid(e.target.value)}
+                  placeholder="Final Amount Paid"
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setConcludeAmountPaid(String(project.amountAgreed))}
+                  style={{ whiteSpace: 'nowrap', border: '1px solid var(--border-color)', padding: '8px 12px' }}
+                >
+                  MARK AS FULLY PAID (₹{project.amountAgreed})
+                </button>
+              </div>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                Agreed value: ₹{project.amountAgreed} &middot; Current paid: ₹{project.amountPaid}
+              </p>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">CONCLUDING NOTES</label>
+              <textarea
+                className="form-input"
+                style={{ minHeight: '80px' }}
+                value={concludeNotes}
+                onChange={(e) => setConcludeNotes(e.target.value)}
+                placeholder="Write final remarks or handover instructions..."
+              />
+            </div>
+          </form>
         </Modal>
       )}
     </div>
