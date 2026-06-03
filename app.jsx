@@ -696,7 +696,7 @@ function DataProvider({ children }) {
     });
 
     if (supabaseClient) {
-      supabaseClient.from('clients').insert([{
+      return supabaseClient.from('clients').insert([{
         id: newClient.id,
         name: newClient.name,
         email: newClient.email,
@@ -707,9 +707,12 @@ function DataProvider({ children }) {
         if (error) {
           console.error('Supabase client insert error', error);
           addToast('Failed to sync new client to database.', 'danger');
+          throw error;
         }
+        return newClient;
       });
     }
+    return Promise.resolve(newClient);
   }, [addToast]);
 
   const addProject = useCallback((project) => {
@@ -832,7 +835,7 @@ function DataProvider({ children }) {
     }
   }, []);
 
-  const deliverPhase = useCallback((projectId, phaseType, round) => {
+  const deliverPhase = useCallback((projectId, phaseType, round, notes, files) => {
     setData((prev) => {
       const project = prev.projects.find((p) => p.id === projectId);
       if (!project) return prev;
@@ -846,6 +849,8 @@ function DataProvider({ children }) {
           ...updatedProject.contentSubmission,
           status: 'delivered',
           deliveredAt: now,
+          deliveryNotes: notes || '',
+          deliveryFiles: files || [],
         };
         updatedProject.revisions = updatedProject.revisions.map((r, i) =>
           i === 0 ? { ...r, status: 'pending_client' } : r
@@ -855,7 +860,7 @@ function DataProvider({ children }) {
       } else if (phaseType === 'revision') {
         updatedProject.revisions = updatedProject.revisions.map((r, i) => {
           if (r.round === round) {
-            return { ...r, status: 'delivered', deliveredAt: now };
+            return { ...r, status: 'delivered', deliveredAt: now, deliveryNotes: notes || '', deliveryFiles: files || [] };
           }
           if (r.round === round + 1 && round < 3) {
             return { ...r, status: 'pending_client' };
@@ -1145,16 +1150,22 @@ function DataProvider({ children }) {
   }, [addToast]);
 
   const updateClient = useCallback((clientId, updates) => {
+    let oldEmail = '';
     setData((prev) => {
       const client = prev.clients.find((c) => c.id === clientId);
       if (!client) return prev;
+      oldEmail = client.email;
 
       const updatedClients = prev.clients.map((c) => (c.id === clientId ? { ...c, ...updates } : c));
       
       let updatedProjects = prev.projects;
+      let updatedNotifications = prev.notifications;
       if (updates.email && updates.email !== client.email) {
         updatedProjects = prev.projects.map((p) =>
           p.clientEmail === client.email ? { ...p, clientEmail: updates.email } : p
+        );
+        updatedNotifications = prev.notifications.map((n) =>
+          n.forEmail === client.email ? { ...n, forEmail: updates.email } : n
         );
       }
 
@@ -1162,6 +1173,7 @@ function DataProvider({ children }) {
         ...prev,
         clients: updatedClients,
         projects: updatedProjects,
+        notifications: updatedNotifications,
       };
       saveData(updated);
       return updated;
@@ -1177,6 +1189,15 @@ function DataProvider({ children }) {
       supabaseClient.from('clients').update(dbUpdates).eq('id', clientId)
         .then(({ error }) => {
           if (error) console.error('Supabase client update error', error);
+          
+          if (updates.email && updates.email !== oldEmail && oldEmail) {
+            supabaseClient.from('notifications')
+              .update({ client_email: updates.email })
+              .eq('client_email', oldEmail)
+              .then(({ error: nErr }) => {
+                if (nErr) console.error('Supabase notifications email update error', nErr);
+              });
+          }
         });
     }
     addToast('Client profile updated.', 'success');
@@ -1641,6 +1662,8 @@ function LoginPage() {
   const [sbUrl, setSbUrl] = useState(() => localStorage.getItem('supabase_url') || '');
   const [sbKey, setSbKey] = useState(() => localStorage.getItem('supabase_anon_key') || '');
 
+  const initialLoading = loading && data.clients.length === 0;
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setError('');
@@ -1670,6 +1693,12 @@ function LoginPage() {
             <div className="login-card__subtitle">Freelancer Client Management</div>
           </div>
 
+          {initialLoading && (
+            <div style={{ margin: '0 32px 20px', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '6px', textAlign: 'center', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+              <span className="spinner-mini" style={{ width: '12px', height: '12px' }}></span> Synchronizing with cloud database...
+            </div>
+          )}
+
           {error && <div className="login-card__error">{error}</div>}
 
           <form className="login-card__body" onSubmit={handleSubmit}>
@@ -1682,6 +1711,7 @@ function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 required
+                disabled={initialLoading}
               />
             </div>
             <div className="form-group">
@@ -1694,18 +1724,20 @@ function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   required
+                  disabled={initialLoading}
                 />
                 <button
                   type="button"
                   className="form-input-group__suffix"
                   onClick={() => setShowPassword(!showPassword)}
+                  disabled={initialLoading}
                 >
                   {showPassword ? 'HIDE' : 'SHOW'}
                 </button>
               </div>
             </div>
-            <button type="submit" className="btn btn-primary btn-full" style={{ marginTop: '8px' }}>
-              SIGN IN
+            <button type="submit" className="btn btn-primary btn-full" style={{ marginTop: '8px' }} disabled={initialLoading}>
+              {initialLoading ? 'PLEASE WAIT...' : 'SIGN IN'}
             </button>
           </form>
 
@@ -2089,6 +2121,9 @@ function FreelancerProjectDetail({ projectId }) {
   const [concludeAmountPaid, setConcludeAmountPaid] = useState('');
   const [concludeNotes, setConcludeNotes] = useState('');
 
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [deliveryFiles, setDeliveryFiles] = useState([]);
+
   const handleDownloadAll = async (phaseName, filesList) => {
     if (!filesList || filesList.length === 0) return;
 
@@ -2175,6 +2210,8 @@ function FreelancerProjectDetail({ projectId }) {
     if (project) {
       setNotesValue(project.notes || '');
       setNotesEdited(false);
+      setDeliveryNotes('');
+      setDeliveryFiles([]);
     }
   }, [project?.id, project?.notes]);
 
@@ -2209,7 +2246,9 @@ function FreelancerProjectDetail({ projectId }) {
   };
 
   const handleDeliver = (phaseType, round) => {
-    deliverPhase(project.id, phaseType, round);
+    deliverPhase(project.id, phaseType, round, deliveryNotes, deliveryFiles);
+    setDeliveryNotes('');
+    setDeliveryFiles([]);
     addToast(
       phaseType === 'content_submission'
         ? 'Content submission delivered. Revision Round 1 is now open.'
@@ -2242,7 +2281,7 @@ function FreelancerProjectDetail({ projectId }) {
   const canConclude = project.currentPhase === 'completed' && project.status === 'active';
 
   // Phase step renderer
-  const renderPhaseStep = (number, name, key, status, brief, files, submittedAt, deliveredAt, onDeliver) => {
+  const renderPhaseStep = (number, name, key, status, brief, files, submittedAt, deliveredAt, onDeliver, deliveryNotesVal, deliveryFilesVal) => {
     const isExpanded = expandedPhases[key];
     const isLocked = status === 'locked';
 
@@ -2278,7 +2317,7 @@ function FreelancerProjectDetail({ projectId }) {
             {brief && <div className="phase-step__brief">{brief}</div>}
             <div style={{ marginBottom: '16px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div className="form-label" style={{ marginBottom: 0 }}>FILES</div>
+                <div className="form-label" style={{ marginBottom: 0 }}>CLIENT FILES</div>
                 {files && files.length > 0 && (
                   <button
                     className="btn btn-ghost btn-sm"
@@ -2294,6 +2333,25 @@ function FreelancerProjectDetail({ projectId }) {
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
               Submitted on {formatDate(submittedAt)}
             </p>
+
+            <div className="card card--no-hover" style={{ padding: '20px', border: '1px dashed var(--border-color)', marginBottom: '16px', background: 'var(--bg-primary)' }}>
+              <div className="section-heading" style={{ marginBottom: '12px' }}>YOUR DELIVERABLES</div>
+              <div className="form-group">
+                <label className="form-label">UPLOAD DELIVERABLE FILES</label>
+                <FileUpload files={deliveryFiles} onChange={setDeliveryFiles} />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">DELIVERY NOTES / INSTRUCTIONS</label>
+                <textarea
+                  className="form-input"
+                  style={{ minHeight: '80px' }}
+                  value={deliveryNotes}
+                  onChange={(e) => setDeliveryNotes(e.target.value)}
+                  placeholder="Explain what has been completed, provide preview links, or write feedback instructions..."
+                />
+              </div>
+            </div>
+
             <button className="btn btn-primary btn-full" onClick={onDeliver}>
               MARK AS DELIVERED + NOTIFY CLIENT
             </button>
@@ -2302,23 +2360,23 @@ function FreelancerProjectDetail({ projectId }) {
 
         {status === 'delivered' && isExpanded && (
           <div className="phase-step__content">
-            {brief && <div className="phase-step__brief">{brief}</div>}
-            <div style={{ marginBottom: '16px', marginTop: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div className="form-label" style={{ marginBottom: 0 }}>FILES</div>
-                {files && files.length > 0 && (
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    style={{ padding: '4px 10px', fontSize: '11px', border: '1px solid var(--border-color)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}
-                    onClick={(e) => { e.stopPropagation(); handleDownloadAll(name, files); }}
-                  >
-                    DOWNLOAD ALL (.ZIP)
-                  </button>
-                )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              <div>
+                <div className="section-heading" style={{ fontSize: '10px', marginBottom: '8px' }}>CLIENT BRIEF</div>
+                {brief && <div className="phase-step__brief" style={{ fontSize: '13px' }}>{brief}</div>}
+                <FileList files={files} />
               </div>
-              <FileList files={files} />
+              <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '24px' }}>
+                <div className="section-heading" style={{ fontSize: '10px', color: 'var(--success)', marginBottom: '8px' }}>YOUR DELIVERED WORK</div>
+                {deliveryNotesVal ? (
+                  <div className="phase-step__brief" style={{ fontSize: '13px', fontWeight: 500 }}>{deliveryNotesVal}</div>
+                ) : (
+                  <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No delivery notes provided.</p>
+                )}
+                <FileList files={deliveryFilesVal} />
+              </div>
             </div>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '12px' }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '16px' }}>
               Delivered on {formatDate(deliveredAt)}
             </p>
           </div>
@@ -2367,7 +2425,9 @@ function FreelancerProjectDetail({ projectId }) {
               project.contentSubmission.files,
               project.contentSubmission.submittedAt,
               project.contentSubmission.deliveredAt,
-              () => handleDeliver('content_submission', null)
+              () => handleDeliver('content_submission', null),
+              project.contentSubmission.deliveryNotes,
+              project.contentSubmission.deliveryFiles
             )}
 
             {project.revisions.map((rev) =>
@@ -2380,7 +2440,9 @@ function FreelancerProjectDetail({ projectId }) {
                 rev.files,
                 rev.submittedAt,
                 rev.deliveredAt,
-                () => handleDeliver('revision', rev.round)
+                () => handleDeliver('revision', rev.round),
+                rev.deliveryNotes,
+                rev.deliveryFiles
               )
             )}
 
@@ -2681,7 +2743,7 @@ function NewProjectForm() {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
 
@@ -2691,12 +2753,17 @@ function NewProjectForm() {
       clientEmail = newClientEmail.trim().toLowerCase();
       const derivedName = newClientName.trim() || clientEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       const derivedPassword = newClientPassword.trim() || 'client123';
-      addClient({
-        name: derivedName,
-        email: clientEmail,
-        phone: newClientPhone.trim(),
-        password: derivedPassword,
-      });
+      try {
+        await addClient({
+          name: derivedName,
+          email: clientEmail,
+          phone: newClientPhone.trim(),
+          password: derivedPassword,
+        });
+      } catch (err) {
+        addToast('Failed to create new client. Project creation aborted.', 'danger');
+        return;
+      }
     }
 
     const projectId = addProject({
@@ -3799,6 +3866,8 @@ function ClientProjectView({ project }) {
           title="CONTENT SUBMISSION"
           brief={project.contentSubmission.brief}
           files={project.contentSubmission.files}
+          deliveryNotes={project.contentSubmission.deliveryNotes}
+          deliveryFiles={project.contentSubmission.deliveryFiles}
           deliveredAt={project.contentSubmission.deliveredAt}
         />
       );
@@ -3813,6 +3882,8 @@ function ClientProjectView({ project }) {
             title={`REVISION ROUND ${rev.round}`}
             brief={rev.brief}
             files={rev.files}
+            deliveryNotes={rev.deliveryNotes}
+            deliveryFiles={rev.deliveryFiles}
             deliveredAt={rev.deliveredAt}
           />
         );
@@ -4018,8 +4089,19 @@ function ClientPhaseCard({ project, phaseType, round, title, phaseData, descript
           <div className="section-heading" style={{ marginBottom: 0 }}>{title}</div>
           <StatusPill label="DELIVERED" variant="success" />
         </div>
+
+        <div style={{ marginBottom: '24px', background: 'rgba(16, 185, 129, 0.04)', border: '1px solid rgba(16, 185, 129, 0.1)', borderRadius: '6px', padding: '20px' }}>
+          <div className="section-heading" style={{ color: 'var(--success)', marginBottom: '8px' }}>DELIVERED WORK</div>
+          {phaseData.deliveryNotes ? (
+            <div className="phase-step__brief" style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{phaseData.deliveryNotes}</div>
+          ) : (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>No delivery notes provided.</p>
+          )}
+          <FileList files={phaseData.deliveryFiles} />
+        </div>
+
         <button className="btn-link" onClick={() => setExpanded(!expanded)} style={{ marginBottom: '12px' }}>
-          {expanded ? 'HIDE DETAILS' : 'SHOW DETAILS'}
+          {expanded ? 'HIDE YOUR BRIEF' : 'SHOW YOUR BRIEF'}
         </button>
         {expanded && (
           <div style={{ marginBottom: '16px' }}>
@@ -4043,7 +4125,7 @@ function ClientPhaseCard({ project, phaseType, round, title, phaseData, descript
 }
 
 // ---- Delivered Phase Card (collapsed) ----
-function DeliveredPhaseCard({ title, brief, files, deliveredAt }) {
+function DeliveredPhaseCard({ title, brief, files, deliveryNotes, deliveryFiles, deliveredAt }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -4059,9 +4141,23 @@ function DeliveredPhaseCard({ title, brief, files, deliveredAt }) {
       </div>
       {expanded && (
         <div style={{ marginTop: '16px' }}>
-          {brief && <div className="phase-step__brief">{brief}</div>}
-          <FileList files={files} />
-          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div>
+              <div className="section-heading" style={{ fontSize: '10px', marginBottom: '8px' }}>YOUR BRIEF</div>
+              {brief && <div className="phase-step__brief">{brief}</div>}
+              <FileList files={files} />
+            </div>
+            <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '20px' }}>
+              <div className="section-heading" style={{ fontSize: '10px', color: 'var(--success)', marginBottom: '8px' }}>DELIVERED WORK</div>
+              {deliveryNotes ? (
+                <div className="phase-step__brief" style={{ fontWeight: 500 }}>{deliveryNotes}</div>
+              ) : (
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No delivery notes provided.</p>
+              )}
+              <FileList files={deliveryFiles} />
+            </div>
+          </div>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '16px' }}>
             Delivered on {formatDate(deliveredAt)}
           </p>
         </div>

@@ -708,16 +708,19 @@ select.form-input {
   background: none;
   width: 100%;
   text-align: left;
+  border-left: 3px solid transparent;
 }
 
 .sidebar__nav-item:hover {
   color: #2563EB;
   background: rgba(37, 99, 235, 0.04);
+  border-left-color: rgba(37, 99, 235, 0.3);
 }
 
 .sidebar__nav-item--active {
   color: #2563EB;
   background: rgba(37, 99, 235, 0.06);
+  border-left-color: #2563EB;
 }
 
 .sidebar__badge {
